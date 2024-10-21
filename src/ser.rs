@@ -59,9 +59,9 @@ impl<'a, W: fmt::Write> fmt::Write for EqSignChecker<'a, W> {
 /// > otherparam     = qchar *qchar [ "=" *qchar ]
 /// > ```
 /// ...
-/// > Here, "qchar" corresponds to valid characters of an RFC 3986 URI > query
-/// component, excluding the "=" and "&" characters, which this BIP > takes as
-/// separators.
+/// > Here, "qchar" corresponds to valid characters of an RFC 3986 URI query
+/// > component, excluding the "=" and "&" characters, which this BIP takes as
+/// > separators.
 ///
 /// [RFC 3986 Appendix A](https://www.rfc-editor.org/rfc/rfc3986#appendix-A):
 ///
