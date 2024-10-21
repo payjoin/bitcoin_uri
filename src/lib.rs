@@ -429,4 +429,17 @@ mod tests {
 
         assert_eq!(uri.to_string(), "bitcoin:1andreas3batLhQa2FawWjeyjCqyBzypd");
     }
+
+    #[test]
+    fn label_with_rfc3986_param_separator() {
+        let input = "bitcoin:1andreas3batLhQa2FawWjeyjCqyBzypd?label=foo%26bar%20%3D%20baz%3F";
+        let uri = input.parse::<Uri<'_, _>>().unwrap().require_network(bitcoin::Network::Bitcoin).unwrap();
+        let label: Cow<'_, str> = uri.label.clone().unwrap().try_into().unwrap();
+        assert_eq!(uri.address.to_string(), "1andreas3batLhQa2FawWjeyjCqyBzypd");
+        assert_eq!(label, "foo&bar = baz?");
+        assert!(uri.amount.is_none());
+        assert!(uri.message.is_none());
+
+        assert_eq!(uri.to_string(), input);
+    }
 }
