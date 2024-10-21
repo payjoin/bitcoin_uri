@@ -426,5 +426,7 @@ mod tests {
         assert!(uri.amount.is_none());
         assert!(uri.label.is_none());
         assert!(uri.message.is_none());
+
+        assert_eq!(uri.to_string(), "bitcoin:1andreas3batLhQa2FawWjeyjCqyBzypd");
     }
 }
