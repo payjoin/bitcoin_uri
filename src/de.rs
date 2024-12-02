@@ -234,6 +234,7 @@ impl<T: fmt::Display + std::error::Error + 'static> std::error::Error for Error<
 pub struct UriError(UriErrorInner);
 
 #[derive(Debug, Clone)]
+#[cfg_attr(not(feature = "std"), allow(dead_code))]
 enum UriErrorInner {
     TooShort,
     InvalidScheme,
