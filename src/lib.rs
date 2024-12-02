@@ -479,4 +479,11 @@ mod tests {
         assert!(uri.message.is_none());
         assert_eq!(uri.to_string(), "bitcoin:1andreas3batLhQa2FawWjeyjCqyBzypd?label=foo");
     }
+
+    #[test]
+    fn bad_unicode_scheme() {
+        let input = "bitcoinö:1andreas3batLhQa2FawWjeyjCqyBzypd";
+        let uri = input.parse::<Uri<'_, _>>();
+        assert!(uri.is_err());
+    }
 }
