@@ -30,7 +30,7 @@ pub trait SerializeParams {
 /// Checks if the display implementation outputs `=` character.
 struct EqSignChecker<'a, W: fmt::Write>(W, &'a dyn fmt::Display);
 
-impl<'a, W: fmt::Write> fmt::Write for EqSignChecker<'a, W> {
+impl<W: fmt::Write> fmt::Write for EqSignChecker<'_, W> {
     fn write_str(&mut self, s: &str) -> fmt::Result {
         if s.contains('=') {
             panic!("key '{}' contains equal sign", self.1);
@@ -128,7 +128,7 @@ impl<T: fmt::Display> fmt::Display for DisplayEncoder<T> {
 /// This is private because people should generally only display values as decoded
 struct DisplayParam<'a>(&'a Param<'a>);
 
-impl<'a> fmt::Display for DisplayParam<'a> {
+impl fmt::Display for DisplayParam<'_> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match &(self.0).0 {
             // TODO: improve percent_encoding_rfc_3986 so that allocation can be avoided
@@ -175,7 +175,7 @@ fn maybe_display_param(writer: &mut impl fmt::Write, key: impl fmt::Display, val
 
 /// Formats QR-code-optimized URI if alternate form (`{:#}`) is used.
 #[rustfmt::skip]
-impl<'a, T> fmt::Display for Uri<'a, bitcoin::address::NetworkChecked, T> where for<'b> &'b T: SerializeParams {
+impl<T> fmt::Display for Uri<'_, bitcoin::address::NetworkChecked, T> where for<'b> &'b T: SerializeParams {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         if f.alternate() {
             write!(f, "bitcoin:{:#}", self.address)?;

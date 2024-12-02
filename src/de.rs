@@ -93,7 +93,7 @@ impl<'a, T: DeserializeParams<'a>> Uri<'a, bitcoin::address::NetworkUnchecked, T
     }
 }
 
-impl<'a, NetVal: NetworkValidation, T> Uri<'a, NetVal, T> {
+impl<NetVal: NetworkValidation, T> Uri<'_, NetVal, T> {
     /// Makes the lifetime `'static` by converting all fields to owned.
     ///
     /// Note that this does **not** affect `extras`!
@@ -293,7 +293,7 @@ impl std::error::Error for UriError {
 }
 
 /// **Warning**: this implementation may needlessly allocate, consider using `TryFrom<&str>` instead.
-impl<'a, T: for<'de> DeserializeParams<'de>> core::str::FromStr for Uri<'a, bitcoin::address::NetworkUnchecked, T> {
+impl<T: for<'de> DeserializeParams<'de>> core::str::FromStr for Uri<'_, bitcoin::address::NetworkUnchecked, T> {
     type Err = Error<T::Error>;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -310,7 +310,7 @@ impl<'a, T: DeserializeParams<'a>> TryFrom<&'a str> for Uri<'a, bitcoin::address
 }
 
 /// **Warning**: this implementation may needlessly allocate, consider using `TryFrom<&str>` instead.
-impl<'a, T: for<'de> DeserializeParams<'de>> TryFrom<String> for Uri<'a, bitcoin::address::NetworkUnchecked, T> {
+impl<T: for<'de> DeserializeParams<'de>> TryFrom<String> for Uri<'_, bitcoin::address::NetworkUnchecked, T> {
     type Error = Error<T::Error>;
 
     fn try_from(s: String) -> Result<Self, Self::Error> {
