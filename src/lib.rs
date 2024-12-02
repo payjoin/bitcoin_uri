@@ -102,7 +102,7 @@ where
     pub extras: Extras,
 }
 
-impl<'a, NetVal: NetworkValidation, T: Default> Uri<'a, NetVal, T> {
+impl<NetVal: NetworkValidation, T: Default> Uri<'_, NetVal, T> {
     /// Creates an URI with defaults.
     ///
     /// This sets all fields except `address` to default values.
@@ -118,7 +118,7 @@ impl<'a, NetVal: NetworkValidation, T: Default> Uri<'a, NetVal, T> {
     }
 }
 
-impl<'a, NetVal: NetworkValidation, T> Uri<'a, NetVal, T> {
+impl<NetVal: NetworkValidation, T> Uri<'_, NetVal, T> {
     /// Creates an URI with defaults.
     ///
     /// This sets all fields except `address` and `extras` to default values.
@@ -194,7 +194,7 @@ impl<'a> From<&'a str> for Param<'a> {
 }
 
 /// Cheap conversion
-impl<'a> From<String> for Param<'a> {
+impl From<String> for Param<'_> {
     fn from(value: String) -> Self {
         Param(ParamInner::UnencodedString(Cow::Owned(value)))
     }
@@ -212,7 +212,7 @@ impl<'a> From<&'a [u8]> for Param<'a> {
 /// Cheap conversion
 #[cfg(feature = "non-compliant-bytes")]
 #[cfg_attr(docsrs, doc(cfg(feature = "non-compliant-bytes")))]
-impl<'a> From<Vec<u8>> for Param<'a> {
+impl From<Vec<u8>> for Param<'_> {
     fn from(value: Vec<u8>) -> Self {
         Param(ParamInner::UnencodedBytes(Cow::Owned(value)))
     }
@@ -284,6 +284,7 @@ enum ParamInner<'a> {
 /// The lifetime of this may be shorter than that of [`Param<'a>`].
 #[cfg(feature = "non-compliant-bytes")]
 #[cfg_attr(docsrs, doc(cfg(feature = "non-compliant-bytes")))]
+#[cfg_attr(feature = "non-compliant-bytes", allow(dead_code))]
 pub struct ParamBytes<'a>(ParamIterInner<'a, core::iter::Cloned<core::slice::Iter<'a, u8>>>);
 
 /// Iterator over decoded bytes inside paramter.
@@ -291,6 +292,7 @@ pub struct ParamBytes<'a>(ParamIterInner<'a, core::iter::Cloned<core::slice::Ite
 /// The lifetime of this is same as that of [`Param<'a>`].
 #[cfg(feature = "non-compliant-bytes")]
 #[cfg_attr(docsrs, doc(cfg(feature = "non-compliant-bytes")))]
+#[cfg_attr(feature = "non-compliant-bytes", allow(dead_code))]
 pub struct ParamBytesOwned<'a>(ParamIterInner<'a, Either<core::iter::Cloned<core::slice::Iter<'a, u8>>, alloc::vec::IntoIter<u8>>>);
 
 #[cfg(feature = "non-compliant-bytes")]
@@ -315,7 +317,7 @@ impl DeserializationError for NoExtras {
     type Error = core::convert::Infallible;
 }
 
-impl<'de> DeserializationState<'de> for EmptyState {
+impl DeserializationState<'_> for EmptyState {
     type Value = NoExtras;
 
     fn is_param_known(&self, _key: &str) -> bool {
@@ -331,7 +333,7 @@ impl<'de> DeserializationState<'de> for EmptyState {
     }
 }
 
-impl<'a> SerializeParams for &'a NoExtras {
+impl SerializeParams for &NoExtras {
     type Key = core::convert::Infallible;
     type Value = core::convert::Infallible;
     type Iterator = core::iter::Empty<(Self::Key, Self::Value)>;
