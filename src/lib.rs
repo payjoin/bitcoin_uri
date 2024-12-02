@@ -284,6 +284,7 @@ enum ParamInner<'a> {
 /// The lifetime of this may be shorter than that of [`Param<'a>`].
 #[cfg(feature = "non-compliant-bytes")]
 #[cfg_attr(docsrs, doc(cfg(feature = "non-compliant-bytes")))]
+#[cfg_attr(feature = "non-compliant-bytes", allow(dead_code))]
 pub struct ParamBytes<'a>(ParamIterInner<'a, core::iter::Cloned<core::slice::Iter<'a, u8>>>);
 
 /// Iterator over decoded bytes inside paramter.
@@ -291,6 +292,7 @@ pub struct ParamBytes<'a>(ParamIterInner<'a, core::iter::Cloned<core::slice::Ite
 /// The lifetime of this is same as that of [`Param<'a>`].
 #[cfg(feature = "non-compliant-bytes")]
 #[cfg_attr(docsrs, doc(cfg(feature = "non-compliant-bytes")))]
+#[cfg_attr(feature = "non-compliant-bytes", allow(dead_code))]
 pub struct ParamBytesOwned<'a>(ParamIterInner<'a, Either<core::iter::Cloned<core::slice::Iter<'a, u8>>, alloc::vec::IntoIter<u8>>>);
 
 #[cfg(feature = "non-compliant-bytes")]
