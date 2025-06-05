@@ -25,7 +25,7 @@ impl<'a, T: DeserializeParams<'a>> Uri<'a, bitcoin::address::NetworkUnchecked, T
             return Err(Error::Uri(UriError(UriErrorInner::TooShort)));
         }
 
-        if !string.get(..SCHEME.len()).map_or(false, |s| s.eq_ignore_ascii_case(SCHEME)) {
+        if !string.get(..SCHEME.len()).is_some_and(|s| s.eq_ignore_ascii_case(SCHEME)) {
             return Err(Error::Uri(UriError(UriErrorInner::InvalidScheme)));
         }
 
@@ -60,14 +60,23 @@ impl<'a, T: DeserializeParams<'a>> Uri<'a, bitcoin::address::NetworkUnchecked, T
                 let value = &param[(pos + 1)..];
                 match key {
                     "amount" => {
+                        if amount.is_some() {
+                            return Err(Error::Uri(UriError(UriErrorInner::DuplicateParameter(key.to_owned()))));
+                        }
                         let parsed_amount = bitcoin::Amount::from_str_in(value, Denomination::Bitcoin).map_err(Error::uri)?;
                         amount = Some(parsed_amount);
                     },
                     "label" => {
+                        if label.is_some() {
+                            return Err(Error::Uri(UriError(UriErrorInner::DuplicateParameter(key.to_owned()))));
+                        }
                         let label_decoder = Param::decode(value).map_err(Error::percent_decode_static("label"))?;
                         label = Some(label_decoder);
                     },
                     "message" => {
+                        if message.is_some() {
+                            return Err(Error::Uri(UriError(UriErrorInner::DuplicateParameter(key.to_owned()))));
+                        }
                         let message_decoder = Param::decode(value).map_err(Error::percent_decode_static("message"))?;
                         message = Some(message_decoder);
                     },
@@ -240,6 +249,7 @@ enum UriErrorInner {
     InvalidScheme,
     Address(AddressError),
     Amount(ParseAmountError),
+    DuplicateParameter(String),
     UnknownRequiredParameter(String),
     PercentDecode {
         parameter: Cow<'static, str>,
@@ -267,6 +277,7 @@ impl fmt::Display for UriError {
             UriErrorInner::InvalidScheme => write!(f, "the URI has invalid scheme"),
             UriErrorInner::Address(_) => write!(f, "the address is invalid"),
             UriErrorInner::Amount(_) => write!(f, "the amount is invalid"),
+            UriErrorInner::DuplicateParameter(parameter) => write!(f, "the URI contains a duplicate parameter '{}'", parameter),
             UriErrorInner::UnknownRequiredParameter(parameter) => write!(f, "the URI contains unknown required parameter '{}'", parameter),
             #[cfg(feature = "std")]
             UriErrorInner::PercentDecode { parameter, error: _ } => write!(f, "can not percent-decode parameter {}", parameter),
@@ -286,6 +297,7 @@ impl std::error::Error for UriError {
             UriErrorInner::InvalidScheme => None,
             UriErrorInner::Address(error) => Some(error),
             UriErrorInner::Amount(error) => Some(error),
+            UriErrorInner::DuplicateParameter(_) => None,
             UriErrorInner::UnknownRequiredParameter(_) => None,
             UriErrorInner::PercentDecode { parameter: _, error } => Some(error),
             UriErrorInner::MissingEquals(_) => None,

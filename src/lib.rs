@@ -5,7 +5,7 @@
 //!
 //! * Rust-idiomatic: uses strong types, standard traits and other things
 //! * Compliant: implements all requirements of BIP21, including protections to not forget about
-//!              `req-`. (But see features.)
+//!   `req-`. (But see features.)
 //! * Flexible: enables parsing/serializing additional arguments not defined by BIP21
 //! * Performant: uses zero-copy deserialization and lazy evaluation wherever possible.
 //!
@@ -486,6 +486,21 @@ mod tests {
     fn bad_unicode_scheme() {
         let input = "bitcoinö:1andreas3batLhQa2FawWjeyjCqyBzypd";
         let uri = input.parse::<Uri<'_, _>>();
+        assert!(uri.is_err());
+    }
+
+    #[test]
+    fn duplicate_params() {
+        let duplicate_label = "bitcoin:1andreas3batLhQa2FawWjeyjCqyBzypd?label=foo&label=bar";
+        let uri = duplicate_label.parse::<Uri<'_, _>>();
+        assert!(uri.is_err());
+
+        let duplicate_amount = "bitcoin:1andreas3batLhQa2FawWjeyjCqyBzypd?amount=123&amount=456";
+        let uri = duplicate_amount.parse::<Uri<'_, _>>();
+        assert!(uri.is_err());
+
+        let duplicate_message = "bitcoin:1andreas3batLhQa2FawWjeyjCqyBzypd?message=foo&message=bar";
+        let uri = duplicate_message.parse::<Uri<'_, _>>();
         assert!(uri.is_err());
     }
 }
