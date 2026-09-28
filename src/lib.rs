@@ -420,8 +420,14 @@ mod tests {
         assert!(uri.is_err());
     }
 
+    /// Renamed from `required_understood`. The old name claimed to cover
+    /// `req-` enforcement, but the params here don't carry the `req-`
+    /// prefix at all, so what it actually tests is that plain unknown
+    /// (non-`req-`) params are silently ignored rather than rejected. See
+    /// https://github.com/payjoin/bitcoin_uri/issues/7, which also asks for
+    /// the test added below.
     #[test]
-    fn required_understood() {
+    fn non_required_unknown_params_are_silently_ignored() {
         let input = "bitcoin:1andreas3batLhQa2FawWjeyjCqyBzypd?somethingyoudontunderstand=50&somethingelseyoudontget=999";
         let uri = input.parse::<Uri<'_, _>>().unwrap().require_network(bitcoin::Network::Bitcoin).unwrap();
         assert_eq!(uri.address.to_string(), "1andreas3batLhQa2FawWjeyjCqyBzypd");
@@ -430,6 +436,68 @@ mod tests {
         assert!(uri.message.is_none());
 
         assert_eq!(uri.to_string(), "bitcoin:1andreas3batLhQa2FawWjeyjCqyBzypd");
+    }
+
+    /// A minimal `Extras` that claims exactly one `req-` key, to exercise
+    /// the side `required_not_understood` above doesn't: a `req-` parameter
+    /// that some extension *does* understand must let the URI parse, not
+    /// just reject the ones nobody claims.
+    #[derive(Debug, Default, Clone)]
+    struct ReqFooExtras;
+
+    #[derive(Debug, Default, Clone)]
+    struct ReqFooState;
+
+    impl DeserializationError for ReqFooExtras {
+        type Error = core::convert::Infallible;
+    }
+
+    impl DeserializeParams<'_> for ReqFooExtras {
+        type DeserializationState = ReqFooState;
+    }
+
+    impl DeserializationState<'_> for ReqFooState {
+        type Value = ReqFooExtras;
+
+        fn is_param_known(&self, key: &str) -> bool {
+            key == "req-foo"
+        }
+
+        fn deserialize_temp(&mut self, key: &str, _value: Param<'_>) -> Result<de::ParamKind, core::convert::Infallible> {
+            Ok(if key == "req-foo" {
+                de::ParamKind::Known
+            } else {
+                de::ParamKind::Unknown
+            })
+        }
+
+        fn finalize(self) -> Result<Self::Value, core::convert::Infallible> {
+            Ok(ReqFooExtras)
+        }
+    }
+
+    #[test]
+    fn a_claimed_req_parameter_parses_successfully() {
+        // https://github.com/payjoin/bitcoin_uri/issues/7: `required_not_understood`
+        // above only covers a `req-` key nobody claims. This is the other half:
+        // a `req-` key an `Extras` implementation does claim must not cause a
+        // parse error, the same way `pj`/`pjos` already don't for payjoin.
+        let input = "bitcoin:1andreas3batLhQa2FawWjeyjCqyBzypd?req-foo=50";
+        let uri = input
+            .parse::<Uri<'_, _, ReqFooExtras>>()
+            .unwrap()
+            .require_network(bitcoin::Network::Bitcoin)
+            .unwrap();
+        assert_eq!(uri.address.to_string(), "1andreas3batLhQa2FawWjeyjCqyBzypd");
+    }
+
+    #[test]
+    fn an_unclaimed_and_a_claimed_req_parameter_together_still_fail() {
+        // Claiming one `req-` key does not excuse an unrelated unclaimed one:
+        // every `req-` present must be understood by someone, not just one.
+        let input = "bitcoin:1andreas3batLhQa2FawWjeyjCqyBzypd?req-foo=50&req-bar=1";
+        let uri = input.parse::<Uri<'_, _, ReqFooExtras>>();
+        assert!(uri.is_err());
     }
 
     #[test]
