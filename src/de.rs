@@ -19,7 +19,29 @@ use percent_encoding_rfc3986::PercentDecodeError;
 
 impl<'a, T: DeserializeParams<'a>> Uri<'a, bitcoin::address::NetworkUnchecked, T> {
     /// Implements deserialization.
+    ///
+    /// Fails immediately on an unclaimed `req-` parameter, per BIP21.
     fn deserialize_raw(string: &'a str) -> Result<Self, Error<T::Error>> {
+        Self::deserialize_raw_impl(string, false)
+    }
+
+    /// Like [`Self::deserialize_raw`], but does not fail on an unclaimed
+    /// `req-` parameter. Instead its key is recorded and made available
+    /// afterward through [`Uri::unsatisfied_requirements`].
+    ///
+    /// This is a deliberately separate, opt-in entry point: the ordinary
+    /// `FromStr`/`TryFrom<&str>` parse path (via [`Self::deserialize_raw`])
+    /// keeps rejecting an unclaimed `req-` parameter outright, unchanged.
+    fn deserialize_raw_permissive(string: &'a str) -> Result<Self, Error<T::Error>> {
+        Self::deserialize_raw_impl(string, true)
+    }
+
+    /// Shared implementation for [`Self::deserialize_raw`] and
+    /// [`Self::deserialize_raw_permissive`]. `permissive` selects what
+    /// happens to an unclaimed `req-` parameter: `false` fails immediately
+    /// (today's behavior, unchanged), `true` records its key into
+    /// `unsatisfied_requirements` and keeps parsing.
+    fn deserialize_raw_impl(string: &'a str, permissive: bool) -> Result<Self, Error<T::Error>> {
         const SCHEME: &str = "bitcoin:";
         if string.len() < SCHEME.len() {
             return Err(Error::Uri(UriError(UriErrorInner::TooShort)));
@@ -41,6 +63,7 @@ impl<'a, T: DeserializeParams<'a>> Uri<'a, bitcoin::address::NetworkUnchecked, T
         let mut amount = None;
         let mut label = None;
         let mut message = None;
+        let mut unsatisfied_requirements = alloc::vec::Vec::new();
         if let Some(params) = params {
             // [RFC 3986 § 3.4](https://www.rfc-editor.org/rfc/rfc3986#section-3.4):
             //
@@ -84,7 +107,11 @@ impl<'a, T: DeserializeParams<'a>> Uri<'a, bitcoin::address::NetworkUnchecked, T
                         let decoder = Param::decode(value).map_err(Error::percent_decode(key))?;
                         let is_known = deserializer.deserialize_borrowed(extra_key, decoder).map_err(Error::Extras)?;
                         if is_known == ParamKind::Unknown && extra_key.starts_with("req-") {
-                            return Err(Error::Uri(UriError(UriErrorInner::UnknownRequiredParameter(extra_key.to_owned()))));
+                            if permissive {
+                                unsatisfied_requirements.push(extra_key.to_owned());
+                            } else {
+                                return Err(Error::Uri(UriError(UriErrorInner::UnknownRequiredParameter(extra_key.to_owned()))));
+                            }
                         }
                     },
                 }
@@ -98,6 +125,7 @@ impl<'a, T: DeserializeParams<'a>> Uri<'a, bitcoin::address::NetworkUnchecked, T
             label,
             message,
             extras,
+            unsatisfied_requirements,
         })
     }
 }
@@ -113,6 +141,7 @@ impl<NetVal: NetworkValidation, T> Uri<'_, NetVal, T> {
             label: self.label.map(|label| label.decode_into_owned()),
             message: self.message.map(|message| message.decode_into_owned()),
             extras: self.extras,
+            unsatisfied_requirements: self.unsatisfied_requirements,
         }
     }
 }
@@ -322,6 +351,34 @@ impl<'a, T: DeserializeParams<'a>> TryFrom<&'a str> for Uri<'a, bitcoin::address
     }
 }
 
+impl<T: for<'de> DeserializeParams<'de>> Uri<'_, bitcoin::address::NetworkUnchecked, T> {
+    /// Parses like `s.parse::<Uri<'static, _, T>>()`, except an unclaimed
+    /// `req-` parameter does not fail parsing.
+    ///
+    /// Its key is recorded instead, and can be read back afterward with
+    /// [`Uri::unsatisfied_requirements`]. This lets a caller decide for
+    /// itself, after seeing what was actually unsatisfied, whether to
+    /// accept the URI anyway - for example when the caller understands a
+    /// requirement that `T`'s `Extras` implementation does not claim, or
+    /// wants to surface the specific unmet requirement(s) to a user instead
+    /// of a generic parse failure.
+    ///
+    /// **Warning**: like `FromStr`, this may needlessly allocate; consider
+    /// [`Uri::try_parse_permissive`] for zero-copy parsing instead.
+    pub fn parse_permissive(s: &str) -> Result<Uri<'static, bitcoin::address::NetworkUnchecked, T>, Error<T::Error>> {
+        Uri::deserialize_raw_permissive(s).map(Uri::into_static)
+    }
+}
+
+impl<'a, T: DeserializeParams<'a>> Uri<'a, bitcoin::address::NetworkUnchecked, T> {
+    /// Zero-copy counterpart of [`Uri::parse_permissive`].
+    ///
+    /// See [`Uri::parse_permissive`] for what "permissive" means here.
+    pub fn try_parse_permissive(s: &'a str) -> Result<Self, Error<T::Error>> {
+        Self::deserialize_raw_permissive(s)
+    }
+}
+
 /// **Warning**: this implementation may needlessly allocate, consider using `TryFrom<&str>` instead.
 impl<T: for<'de> DeserializeParams<'de>> TryFrom<String> for Uri<'_, bitcoin::address::NetworkUnchecked, T> {
     type Error = Error<T::Error>;
@@ -355,6 +412,7 @@ impl<'a, T: DeserializeParams<'a>> Uri<'a, bitcoin::address::NetworkUnchecked, T
             label: self.label,
             message: self.message,
             extras: self.extras,
+            unsatisfied_requirements: self.unsatisfied_requirements,
         })
     }
 
@@ -366,6 +424,7 @@ impl<'a, T: DeserializeParams<'a>> Uri<'a, bitcoin::address::NetworkUnchecked, T
             label: self.label,
             message: self.message,
             extras: self.extras,
+            unsatisfied_requirements: self.unsatisfied_requirements,
         }
     }
 }

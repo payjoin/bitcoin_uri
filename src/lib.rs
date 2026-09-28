@@ -100,6 +100,16 @@ where
 
     /// Extra fields that can occur in a BIP21 URI.
     pub extras: Extras,
+
+    /// `req-` parameter keys that were present in the URI but not claimed
+    /// by `extras`.
+    ///
+    /// This is only ever non-empty on a `Uri` produced by
+    /// [`Uri::parse_permissive`]. The ordinary `FromStr`/`TryFrom<&str>`
+    /// parse path rejects an unclaimed `req-` parameter outright (per
+    /// BIP21), so a `Uri` obtained that way never has one left to report
+    /// here.
+    unsatisfied_requirements: alloc::vec::Vec<String>,
 }
 
 impl<NetVal: NetworkValidation, T: Default> Uri<'_, NetVal, T> {
@@ -114,6 +124,7 @@ impl<NetVal: NetworkValidation, T: Default> Uri<'_, NetVal, T> {
             label: None,
             message: None,
             extras: Default::default(),
+            unsatisfied_requirements: alloc::vec::Vec::new(),
         }
     }
 }
@@ -130,7 +141,19 @@ impl<NetVal: NetworkValidation, T> Uri<'_, NetVal, T> {
             label: None,
             message: None,
             extras,
+            unsatisfied_requirements: alloc::vec::Vec::new(),
         }
+    }
+
+    /// Returns the `req-` parameter keys that were present in the URI but
+    /// not claimed by `extras`.
+    ///
+    /// Always empty unless this `Uri` was produced by
+    /// [`Uri::parse_permissive`]: parsing via `FromStr`/`TryFrom<&str>`
+    /// already fails the moment an unclaimed `req-` parameter is seen, so
+    /// there is never one left to report through this method.
+    pub fn unsatisfied_requirements(&self) -> &[String] {
+        &self.unsatisfied_requirements
     }
 }
 
@@ -502,5 +525,96 @@ mod tests {
         let duplicate_message = "bitcoin:1andreas3batLhQa2FawWjeyjCqyBzypd?message=foo&message=bar";
         let uri = duplicate_message.parse::<Uri<'_, _>>();
         assert!(uri.is_err());
+    }
+
+    #[test]
+    fn ordinary_parse_never_reports_unsatisfied_requirements() {
+        // `FromStr`/`TryFrom<&str>` still fail immediately on an unclaimed
+        // `req-`, so a `Uri` obtained that way never has one to report -
+        // `unsatisfied_requirements()` stays empty for every already-passing
+        // parse, e.g. one with no `req-` params at all.
+        let input = "bitcoin:1andreas3batLhQa2FawWjeyjCqyBzypd?label=Luke-Jr";
+        let uri = input.parse::<Uri<'_, _>>().unwrap().require_network(bitcoin::Network::Bitcoin).unwrap();
+        assert!(uri.unsatisfied_requirements().is_empty());
+    }
+
+    #[test]
+    fn parse_permissive_records_an_unclaimed_req_key_instead_of_failing() {
+        let input = "bitcoin:1andreas3batLhQa2FawWjeyjCqyBzypd?req-somethingyoudontunderstand=50";
+        let uri = Uri::<'_, _>::parse_permissive(input)
+            .unwrap()
+            .require_network(bitcoin::Network::Bitcoin)
+            .unwrap();
+        assert_eq!(uri.unsatisfied_requirements(), ["req-somethingyoudontunderstand"]);
+    }
+
+    #[allow(clippy::inconsistent_digit_grouping)] // Use sats/bitcoin when grouping.
+    #[test]
+    fn parse_permissive_still_parses_normally_when_nothing_is_unsatisfied() {
+        let input = "bitcoin:1andreas3batLhQa2FawWjeyjCqyBzypd?amount=20.3&label=Luke-Jr";
+        let uri = Uri::<'_, _>::parse_permissive(input)
+            .unwrap()
+            .require_network(bitcoin::Network::Bitcoin)
+            .unwrap();
+        assert!(uri.unsatisfied_requirements().is_empty());
+        assert_eq!(uri.amount, Some(bitcoin::Amount::from_sat(20_30_000_000)));
+    }
+
+    #[test]
+    fn try_parse_permissive_is_zero_copy_and_records_unclaimed_req_keys() {
+        let input = "bitcoin:1andreas3batLhQa2FawWjeyjCqyBzypd?req-somethingyoudontunderstand=50";
+        let uri = Uri::<'_, _>::try_parse_permissive(input).unwrap();
+        assert_eq!(uri.unsatisfied_requirements(), ["req-somethingyoudontunderstand"]);
+    }
+
+    /// A minimal `Extras` that claims exactly one `req-` key, to check that
+    /// claiming one `req-` key does not excuse an unrelated unclaimed one:
+    /// only the unclaimed one should show up in `unsatisfied_requirements`.
+    #[derive(Debug, Default, Clone)]
+    struct ReqFooExtras;
+
+    #[derive(Debug, Default, Clone)]
+    struct ReqFooState;
+
+    impl crate::de::DeserializationError for ReqFooExtras {
+        type Error = core::convert::Infallible;
+    }
+
+    impl crate::de::DeserializeParams<'_> for ReqFooExtras {
+        type DeserializationState = ReqFooState;
+    }
+
+    impl crate::de::DeserializationState<'_> for ReqFooState {
+        type Value = ReqFooExtras;
+
+        fn is_param_known(&self, key: &str) -> bool {
+            key == "req-foo"
+        }
+
+        fn deserialize_temp(&mut self, key: &str, _value: crate::Param<'_>) -> Result<crate::de::ParamKind, core::convert::Infallible> {
+            Ok(if key == "req-foo" {
+                crate::de::ParamKind::Known
+            } else {
+                crate::de::ParamKind::Unknown
+            })
+        }
+
+        fn finalize(self) -> Result<Self::Value, core::convert::Infallible> {
+            Ok(ReqFooExtras)
+        }
+    }
+
+    #[test]
+    fn parse_permissive_records_only_unclaimed_req_keys_not_claimed_ones() {
+        let input = "bitcoin:1andreas3batLhQa2FawWjeyjCqyBzypd?req-foo=50&req-bar=1";
+        let uri = Uri::<'_, _, ReqFooExtras>::parse_permissive(input)
+            .unwrap()
+            .require_network(bitcoin::Network::Bitcoin)
+            .unwrap();
+        assert_eq!(uri.unsatisfied_requirements(), ["req-bar"]);
+
+        // The strict path still fails on this same input.
+        let strict = input.parse::<Uri<'_, _, ReqFooExtras>>();
+        assert!(strict.is_err());
     }
 }
