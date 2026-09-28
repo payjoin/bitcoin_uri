@@ -79,6 +79,9 @@ impl<W: fmt::Write> fmt::Write for EqSignChecker<'_, W> {
 /// > sub-delims    = "!" / "$" / "&" / "'" / "(" / ")"
 /// >               / "*" / "+" / "," / ";" / "="
 /// > ```
+///
+/// `+` is a `sub-delim` and would be legal unescaped, but is percent-encoded
+/// here anyway: see the comment on `.remove(b'+')`'s absence below.
 const ASCII_SET: percent_encoding_rfc3986::AsciiSet = percent_encoding_rfc3986::NON_ALPHANUMERIC
     // allow non-alphanumeric characters from `unreserved`
     .remove(b'-')
@@ -86,14 +89,18 @@ const ASCII_SET: percent_encoding_rfc3986::AsciiSet = percent_encoding_rfc3986::
     .remove(b'_')
     .remove(b'~')
     // allow non-alphanumeric characters from `sub-delims` excluding bip-21
-    // separators ("&", and "=")
+    // separators ("&", and "=") and excluding '+': RFC 3986 permits a
+    // literal '+' unescaped in a query, but many BIP21 readers apply the
+    // application/x-www-form-urlencoded convention where '+' decodes to a
+    // space. Always percent-encoding '+' as %2B keeps re-emitted URIs safe
+    // for those readers even though this crate itself never does that
+    // decoding.
     .remove(b'!')
     .remove(b'$')
     .remove(b'\'')
     .remove(b'(')
     .remove(b')')
     .remove(b'*')
-    .remove(b'+')
     .remove(b',')
     .remove(b';')
     // allow pchar extra chars

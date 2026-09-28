@@ -345,7 +345,8 @@ impl SerializeParams for &NoExtras {
 
 #[cfg(test)]
 mod tests {
-    use crate::Uri;
+    use crate::{de, Param, Uri};
+    use crate::de::{DeserializationError, DeserializationState, DeserializeParams};
     use alloc::string::ToString;
     use alloc::borrow::Cow;
     use core::convert::TryInto;
@@ -501,6 +502,107 @@ mod tests {
 
         let duplicate_message = "bitcoin:1andreas3batLhQa2FawWjeyjCqyBzypd?message=foo&message=bar";
         let uri = duplicate_message.parse::<Uri<'_, _>>();
+        assert!(uri.is_err());
+    }
+
+    #[test]
+    fn a_literal_plus_round_trips_as_percent_2b() {
+        // `a%2Bb` decodes to the literal string "a+b" (RFC 3986: '+' is not
+        // special). Re-serializing must escape that '+' back to `%2B`, or a
+        // reader that treats '+' as a space (the application/x-www-form-
+        // urlencoded convention, which many BIP21 wallets mistakenly apply)
+        // will see "a b" instead.
+        let input = "bitcoin:1andreas3batLhQa2FawWjeyjCqyBzypd?label=a%2Bb";
+        let uri = input.parse::<Uri<'_, _>>().unwrap().require_network(bitcoin::Network::Bitcoin).unwrap();
+        let label: alloc::borrow::Cow<'_, str> = uri.label.clone().unwrap().try_into().unwrap();
+        assert_eq!(label, "a+b");
+        assert_eq!(uri.to_string(), input);
+    }
+
+    #[test]
+    fn a_bare_plus_in_input_is_never_treated_as_a_space() {
+        // A literal, unencoded '+' in the input must decode to '+', never to
+        // a space, and must round-trip as `%2B` per the previous test.
+        let input = "bitcoin:1andreas3batLhQa2FawWjeyjCqyBzypd?label=a+b";
+        let uri = input.parse::<Uri<'_, _>>().unwrap().require_network(bitcoin::Network::Bitcoin).unwrap();
+        let label: alloc::borrow::Cow<'_, str> = uri.label.clone().unwrap().try_into().unwrap();
+        assert_eq!(label, "a+b");
+        assert_eq!(uri.to_string(), "bitcoin:1andreas3batLhQa2FawWjeyjCqyBzypd?label=a%2Bb");
+    }
+
+    /// A minimal `Extras` that only knows the lowercase key `pj`, the same
+    /// way a real extension (such as payjoin's `PayjoinExtras`) matches its
+    /// own parameter names. It exists to prove that case-insensitive
+    /// matching for known top-level keys and `req-` does not require any
+    /// change on the `Extras` implementor's side: `bitcoin_uri` already
+    /// normalizes the key it hands to `deserialize_temp`/`deserialize_borrowed`.
+    #[derive(Debug, Default, Clone)]
+    struct PjLike {
+        pj: Option<alloc::string::String>,
+    }
+
+    impl DeserializationError for PjLike {
+        type Error = core::convert::Infallible;
+    }
+
+    impl DeserializeParams<'_> for PjLike {
+        type DeserializationState = PjLikeState;
+    }
+
+    #[derive(Debug, Default, Clone)]
+    struct PjLikeState {
+        pj: Option<alloc::string::String>,
+    }
+
+    impl DeserializationState<'_> for PjLikeState {
+        type Value = PjLike;
+
+        fn is_param_known(&self, key: &str) -> bool {
+            key == "pj"
+        }
+
+        fn deserialize_temp(&mut self, key: &str, value: Param<'_>) -> Result<de::ParamKind, core::convert::Infallible> {
+            if key == "pj" {
+                let value: alloc::string::String = value.try_into().unwrap();
+                self.pj = Some(value);
+                Ok(de::ParamKind::Known)
+            } else {
+                Ok(de::ParamKind::Unknown)
+            }
+        }
+
+        fn finalize(self) -> Result<Self::Value, core::convert::Infallible> {
+            Ok(PjLike { pj: self.pj })
+        }
+    }
+
+    #[test]
+    fn an_uppercase_known_extra_param_is_still_recognized() {
+        // A QR code in alphanumeric mode is uppercase-only, so wallets do
+        // scan URIs shaped like this. Before the fix, `PJ` did not match the
+        // lowercase-only `PjLike` extras and was silently dropped, with no
+        // error and no indication the payjoin parameter was ever there.
+        //
+        // Bech32 (BIP 173) is defined to accept an address in all-uppercase
+        // form; legacy base58 addresses are not (base58 is case-sensitive,
+        // so uppercasing one breaks its checksum), which is why this uses a
+        // bech32 address rather than the base58 one the other tests share.
+        let input = "BITCOIN:BC1QW508D6QEJXTDG4Y5R3ZARVARY0C5XW7KV8F3T4?PJ=HTTPS://EXAMPLE.COM";
+        let uri = input
+            .parse::<Uri<'_, _, PjLike>>()
+            .unwrap()
+            .require_network(bitcoin::Network::Bitcoin)
+            .unwrap();
+        assert_eq!(uri.extras.pj.as_deref(), Some("HTTPS://EXAMPLE.COM"));
+    }
+
+    #[test]
+    fn an_uppercase_unclaimed_req_key_is_still_rejected() {
+        // Lowercase `req-` is already rejected by `required_not_understood`
+        // above; this is the same guarantee for the uppercase shape a QR
+        // code in alphanumeric mode produces.
+        let input = "bitcoin:1andreas3batLhQa2FawWjeyjCqyBzypd?REQ-SOMETHINGYOUDONTUNDERSTAND=50";
+        let uri = input.parse::<Uri<'_, _, PjLike>>();
         assert!(uri.is_err());
     }
 }

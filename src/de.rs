@@ -58,7 +58,26 @@ impl<'a, T: DeserializeParams<'a>> Uri<'a, bitcoin::address::NetworkUnchecked, T
                     .ok_or_else(|| Error::Uri(UriError(UriErrorInner::MissingEquals(param.to_owned()))))?;
                 let key = &param[..pos];
                 let value = &param[(pos + 1)..];
-                match key {
+                // BIP 21 / BIP 321 keys are case-insensitive. QR codes in
+                // alphanumeric mode are uppercase-only, so wallets do scan
+                // URIs shaped like `?AMOUNT=1&PJ=...`; matching `key`
+                // verbatim silently drops every parameter in that shape
+                // instead of erroring. Extras get the lowercased key too, so
+                // an `Extras` impl matching "pj"/"pjos" literally does not
+                // need its own case handling to see "PJ"/"PJOS".
+                //
+                // The common case is already-lowercase input, so only
+                // allocate when `key` actually contains an uppercase ASCII
+                // byte; that keeps the zero-copy `deserialize_borrowed` path
+                // for the common case instead of always paying for a clone
+                // via `deserialize_temp`.
+                let lower_key = if key.bytes().any(|b| b.is_ascii_uppercase()) {
+                    Some(key.to_ascii_lowercase())
+                } else {
+                    None
+                };
+                let matched_key = lower_key.as_deref().unwrap_or(key);
+                match matched_key {
                     "amount" => {
                         if amount.is_some() {
                             return Err(Error::Uri(UriError(UriErrorInner::DuplicateParameter(key.to_owned()))));
@@ -80,11 +99,18 @@ impl<'a, T: DeserializeParams<'a>> Uri<'a, bitcoin::address::NetworkUnchecked, T
                         let message_decoder = Param::decode(value).map_err(Error::percent_decode_static("message"))?;
                         message = Some(message_decoder);
                     },
-                    extra_key => {
+                    _ => {
                         let decoder = Param::decode(value).map_err(Error::percent_decode(key))?;
-                        let is_known = deserializer.deserialize_borrowed(extra_key, decoder).map_err(Error::Extras)?;
-                        if is_known == ParamKind::Unknown && extra_key.starts_with("req-") {
-                            return Err(Error::Uri(UriError(UriErrorInner::UnknownRequiredParameter(extra_key.to_owned()))));
+                        let is_known = match &lower_key {
+                            // Not borrowed from the source string, so this
+                            // must go through `deserialize_temp` rather than
+                            // `deserialize_borrowed` (which requires a `key`
+                            // borrowed for `'de`).
+                            Some(lower_key) => deserializer.deserialize_temp(lower_key, decoder).map_err(Error::Extras)?,
+                            None => deserializer.deserialize_borrowed(key, decoder).map_err(Error::Extras)?,
+                        };
+                        if is_known == ParamKind::Unknown && matched_key.starts_with("req-") {
+                            return Err(Error::Uri(UriError(UriErrorInner::UnknownRequiredParameter(key.to_owned()))));
                         }
                     },
                 }
