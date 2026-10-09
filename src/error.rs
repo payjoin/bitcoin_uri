@@ -1,14 +1,75 @@
-//! Access-time errors for decoding a parameter value.
+//! Parse-time errors for [`crate::Uri`].
 //!
-//! A parameter can be structurally fine and still fail to decode later: its
-//! percent-encoding may be invalid, or the decoded bytes may not be UTF-8.
-//! That failure is reported here, at the point a typed, decoded view of the
-//! value is asked for, rather than at parse time.
+//! Only failures that must be known before a `Uri` can exist live here.
+//! Anything else - including a non-UTF-8 or otherwise malformed value for a
+//! param nobody asked for yet - is an access-time error on whichever typed
+//! accessor needs it, not a parse error.
 
+use alloc::borrow::ToOwned;
+use alloc::string::String;
 use core::fmt;
 use percent_encoding_rfc3986::PercentDecodeError;
 
+/// Why parsing a `bitcoin:` URI into a [`crate::Uri`] failed.
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub enum Error {
+    /// The string does not start with the `bitcoin:` scheme
+    /// (case-insensitively).
+    InvalidScheme,
+    /// The body address (before the `?`) failed to parse.
+    InvalidBodyAddress(bitcoin::address::ParseError),
+    /// The `amount` parameter failed to parse.
+    InvalidAmount(bitcoin::amount::ParseAmountError),
+    /// A `label`, `message`, `pop`, or `amount` parameter appeared more than
+    /// once. BIP 321 forbids repeating any of these four.
+    DuplicateParameter(String),
+    /// A percent-encoded parameter value contained invalid percent-encoding.
+    InvalidPercentEncoding {
+        /// The parameter key whose value failed to decode.
+        key: String,
+        /// The underlying decode failure.
+        error: PercentDecodeError,
+    },
+}
+
+impl Error {
+    pub(crate) fn percent_decode(key: &str) -> impl '_ + FnOnce(PercentDecodeError) -> Self {
+        move |error| Error::InvalidPercentEncoding { key: key.to_owned(), error }
+    }
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Error::InvalidScheme => write!(f, "the URI has an invalid scheme"),
+            Error::InvalidBodyAddress(_) => write!(f, "the URI contains an invalid address"),
+            Error::InvalidAmount(_) => write!(f, "the amount parameter is invalid"),
+            Error::DuplicateParameter(key) => write!(f, "the URI contains a duplicate '{}' parameter", key),
+            Error::InvalidPercentEncoding { key, .. } => write!(f, "can not percent-decode parameter '{}'", key),
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for Error {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Error::InvalidScheme => None,
+            Error::InvalidBodyAddress(error) => Some(error),
+            Error::InvalidAmount(error) => Some(error),
+            Error::DuplicateParameter(_) => None,
+            Error::InvalidPercentEncoding { error, .. } => Some(error),
+        }
+    }
+}
+
 /// Why decoding an already-parsed parameter's value failed.
+///
+/// This is distinct from [`Error`]: the parameter itself parsed fine (it is
+/// right there in [`crate::Uri::params`]), it is only the typed, decoded
+/// view of it - [`crate::Uri::label`], [`crate::Uri::message`],
+/// [`crate::Uri::pop`] - that failed.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub enum AccessError {

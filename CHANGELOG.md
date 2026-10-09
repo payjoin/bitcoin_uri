@@ -6,14 +6,24 @@
 
 - MSRV is now 1.85, and the `bitcoin` dependency is 0.32.102, to track
   rust-payjoin.
+- `Uri` is now owned and has no lifetime parameter: `Uri<V>` instead of
+  `Uri<'a, NetVal, Extras>`.
+- Removed the `Extras` type parameter and the `DeserializeParams`,
+  `DeserializationState`, `SerializeParams`, and `Param` traits/types. An
+  extension now reads its parameters straight off the parsed `Uri` via the
+  `Params` multimap instead of plugging a type into the parser.
+- Removed the `non-compliant-bytes` feature and the optional `either`
+  dependency. A non-UTF-8 parameter value is now an access-time error on the
+  typed accessor that needs it, not a separate API.
 
 ### Added
 
 - `Params`/`ParamEntry`: an ordered, case-insensitive multimap of the raw
   query parameters, preserving source order and percent-encoding, with
   `ParamEntry::decoded_value` for on-demand RFC 3986 decoding.
-- Access-time `AccessError`, separate from parse errors: decoding an
-  individual value can fail without failing the parse.
+- Parse-time `Error` and access-time `AccessError`, kept separate: a `Uri`
+  parses as long as it is structurally valid, and decoding an individual
+  value can fail later without failing the parse.
 
 ## 0.1.0
 
