@@ -1,7 +1,7 @@
 //! Rust-idiomatic, compliant, flexible and performant bitcoin URI crate.
 //!
 //! * Rust-idiomatic: owned types, no lifetime parameter.
-//! * Compliant: parses the BIP 321 shape.
+//! * Compliant: parses the full BIP 321 shape, including a body-less URI.
 //! * Flexible: an extension reads whatever params it needs straight off the
 //!   parsed [`Uri`]; this crate never needs to know what they mean.
 //! * Performant: values stay percent-encoded until something decodes them.
@@ -57,7 +57,7 @@ pub struct Uri<V = bitcoin::address::NetworkChecked>
 where
     V: NetworkValidation,
 {
-    body: bitcoin::Address<V>,
+    body: Option<bitcoin::Address<V>>,
     params: Params,
 }
 
@@ -76,7 +76,8 @@ impl<V: NetworkValidation> Eq for Uri<V> where bitcoin::Address<V>: Eq {}
 impl Uri<bitcoin::address::NetworkUnchecked> {
     /// Parses a `bitcoin:` URI per BIP 321.
     ///
-    /// The body address (before the `?`) is required. A query parameter may
+    /// The body address (before the `?`) is optional - BIP 321 allows a
+    /// body-less URI such as `bitcoin:?sp=...` - and a query parameter may
     /// be value-less (`?foo` rather than `?foo=`). `label`, `message`,
     /// `pop`, and `amount` may not repeat.
     ///
@@ -95,7 +96,12 @@ impl Uri<bitcoin::address::NetworkUnchecked> {
             None => (rest, None),
         };
 
-        let body = body_str.parse::<bitcoin::Address<_>>().map_err(Error::InvalidBodyAddress)?;
+        // BIP 321: the body is optional (`[ bitcoinaddress ]`).
+        let body = if body_str.is_empty() {
+            None
+        } else {
+            Some(body_str.parse::<bitcoin::Address<_>>().map_err(Error::InvalidBodyAddress)?)
+        };
 
         let mut params = Params::new();
         if let Some(query) = query {
@@ -151,7 +157,7 @@ impl Uri<bitcoin::address::NetworkUnchecked> {
     /// Marks this `Uri` validated without checking its network.
     pub fn assume_checked(self) -> Uri<bitcoin::address::NetworkChecked> {
         Uri {
-            body: self.body.assume_checked(),
+            body: self.body.map(bitcoin::Address::assume_checked),
             params: self.params,
         }
     }
@@ -174,9 +180,10 @@ impl<'a> core::convert::TryFrom<&'a str> for Uri<bitcoin::address::NetworkUnchec
 }
 
 impl<V: NetworkValidation> Uri<V> {
-    /// The body address (before the `?`).
-    pub fn body(&self) -> &bitcoin::Address<V> {
-        &self.body
+    /// The body address (before the `?`), if the URI had one. BIP 321 makes
+    /// this optional, unlike BIP 21.
+    pub fn body(&self) -> Option<&bitcoin::Address<V>> {
+        self.body.as_ref()
     }
 
     /// The raw, ordered multimap of every query parameter.
@@ -230,7 +237,10 @@ impl<V: NetworkValidation> Uri<V> {
 /// parameters in their original order and key case.
 impl fmt::Display for Uri<bitcoin::address::NetworkChecked> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "bitcoin:{}", self.body)?;
+        write!(f, "bitcoin:")?;
+        if let Some(body) = &self.body {
+            write!(f, "{}", body)?;
+        }
         if !self.params.is_empty() {
             write!(f, "?{}", self.params)?;
         }
@@ -270,15 +280,30 @@ mod tests {
     fn just_address_parses_with_a_body() {
         let input = alloc::format!("bitcoin:{}", LEGACY_MAINNET);
         let uri = Uri::parse(&input).unwrap().assume_checked();
-        assert_eq!(uri.body().to_string(), LEGACY_MAINNET);
+        assert_eq!(uri.body().unwrap().to_string(), LEGACY_MAINNET);
         assert!(uri.params().is_empty());
     }
 
     #[test]
-    fn a_body_is_required() {
-        // Until the body is made optional, a body-less URI does not parse.
-        assert!(Uri::parse("bitcoin:?label=foo").is_err());
-        assert!(Uri::parse("bitcoin:").is_err());
+    fn a_body_less_uri_parses() {
+        // BIP 321's own example: a silent-payment-only URI has no body.
+        let uri = Uri::parse("bitcoin:?sp=sp1qsilentpaymentaddress").unwrap().assume_checked();
+        assert!(uri.body().is_none());
+        assert_eq!(uri.get("sp").unwrap().raw_value.as_deref(), Some("sp1qsilentpaymentaddress"));
+    }
+
+    #[test]
+    fn the_bare_scheme_parses_with_no_body() {
+        let uri = Uri::parse("bitcoin:").unwrap();
+        assert!(uri.body().is_none());
+        assert!(uri.params().is_empty());
+    }
+
+    #[test]
+    fn display_of_a_body_less_uri_has_no_address_before_the_question_mark() {
+        let input = "bitcoin:?sp=sp1qsilentpaymentaddress";
+        let uri = Uri::parse(input).unwrap().assume_checked();
+        assert_eq!(uri.to_string(), input);
     }
 
     #[test]

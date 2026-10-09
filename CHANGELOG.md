@@ -6,6 +6,8 @@
 
 - MSRV is now 1.85, and the `bitcoin` dependency is 0.32.102, to track
   rust-payjoin.
+- The body address is now optional, so a body-less URI such as
+  `bitcoin:?sp=...` parses. `Uri::body` returns `Option<Address<V>>`.
 - `Uri` is now owned and has no lifetime parameter: `Uri<V>` instead of
   `Uri<'a, NetVal, Extras>`.
 - Removed the `Extras` type parameter and the `DeserializeParams`,
