@@ -1,5 +1,13 @@
 # bitcoin_uri Changelog
 
+## Unreleased
+
+### Breaking changes
+
+- MSRV is 1.63, now declared in `rust-version`, and `bitcoin` must be at
+  least 0.32.102. 1.63 matches `bitcoin-payment-instructions`, which this
+  crate is meant to be a dependency of.
+
 ## 0.1.0
 
 - Fork from [Kixunil/bip21 @ `eae7201`](https://github.com/Kixunil/bip21/commit/eae72026cc5838bb169949641948b8c1cef99cbe) v0.5.0.

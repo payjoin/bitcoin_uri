@@ -29,7 +29,7 @@
 //!
 //! ## MSRV
 //!
-//! 1.56.1
+//! 1.63
 
 #![cfg_attr(docsrs, feature(doc_cfg))]
 #![no_std]
