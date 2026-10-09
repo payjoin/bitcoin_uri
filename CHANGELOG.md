@@ -7,6 +7,14 @@
 - MSRV is now 1.85, and the `bitcoin` dependency is 0.32.102, to track
   rust-payjoin.
 
+### Added
+
+- `Params`/`ParamEntry`: an ordered, case-insensitive multimap of the raw
+  query parameters, preserving source order and percent-encoding, with
+  `ParamEntry::decoded_value` for on-demand RFC 3986 decoding.
+- Access-time `AccessError`, separate from parse errors: decoding an
+  individual value can fail without failing the parse.
+
 ## 0.1.0
 
 - Fork from [Kixunil/bip21 @ `eae7201`](https://github.com/Kixunil/bip21/commit/eae72026cc5838bb169949641948b8c1cef99cbe) v0.5.0.
