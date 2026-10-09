@@ -7,6 +7,8 @@
 - MSRV is 1.63, now declared in `rust-version`, and `bitcoin` must be at
   least 0.32.102. 1.63 matches `bitcoin-payment-instructions`, which this
   crate is meant to be a dependency of.
+- The body address is now optional, so a body-less URI such as
+  `bitcoin:?sp=...` parses. `Uri::body` returns `Option<&Address<V>>`.
 - `Uri` is now owned and has no lifetime parameter: `Uri<V>` instead of
   `Uri<'a, NetVal, Extras>`.
 - Removed the `Extras` type parameter and the `DeserializeParams`,
