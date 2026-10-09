@@ -3,6 +3,7 @@ name = "bitcoin_uri"
 version = "0.1.0"
 authors = ["Dan Gould <d@ngould.dev>"]
 edition = "2018"
+rust-version = "1.85"
 description = "Rust-idiomatic, compliant, flexible and performant bitcoin URI crate."
 repository = "https://github.com/payjoin/bitcoin_uri"
 readme = "README.md"
@@ -23,7 +24,7 @@ non-compliant-bytes = ["either"]
 [dependencies]
 either = { version = "1.6.1", optional = true }
 percent-encoding-rfc3986 = "0.1.3"
-bitcoin = { version = "0.32.0", default-features = false }
+bitcoin = { version = "0.32.102", default-features = false }
 
 [dev-dependencies]
-bitcoin = { version = "0.32.0", features = ["std"] }
+bitcoin = { version = "0.32.102", features = ["std"] }

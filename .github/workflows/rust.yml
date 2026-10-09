@@ -7,29 +7,28 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Set up Rust
-        uses: hecrj/setup-rust-action@v1
+        uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
-          rust-version: stable
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v6
       - run: cargo fmt --all -- --check
 
   lint:
     runs-on: ubuntu-latest
     steps:
       - name: Set up Rust
-        uses: hecrj/setup-rust-action@v1
+        uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v6
       - run: cargo clippy --all-targets --all-features -- -D clippy::all
 
   compile:
     runs-on: ubuntu-latest
     steps:
       - name: Set up Rust
-        uses: hecrj/setup-rust-action@v1
-      - uses: actions/checkout@v2
+        uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@v6
       - run: cargo check --all
 
   test:
@@ -37,22 +36,15 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest, macOS-latest]
-        rust: [stable, 1.63.0]
-        exclude:
-          - os: macOS-latest
-            rust: 1.63.0
+        rust: [stable, "1.85"]
     runs-on: ${{ matrix.os }}
 
     steps:
       - name: Setup Rust
-        uses: hecrj/setup-rust-action@v1
+        uses: dtolnay/rust-toolchain@master
         with:
-          rust-version: ${{ matrix.rust }}
+          toolchain: ${{ matrix.rust }}
       - name: Checkout
-        uses: actions/checkout@v2
-      - name: Fixes for MSRV
-        if: matrix.rust == '1.63.0'
-        run: |
-          cargo update
+        uses: actions/checkout@v6
       - name: Test
         run: cargo test
