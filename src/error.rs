@@ -17,7 +17,8 @@ pub enum Error {
     /// The string does not start with the `bitcoin:` scheme
     /// (case-insensitively).
     InvalidScheme,
-    /// The body address (before the `?`) failed to parse.
+    /// The body address (before the `?`), or an HRP-keyed address parameter,
+    /// failed to parse.
     InvalidBodyAddress(bitcoin::address::ParseError),
     /// The `amount` parameter failed to parse.
     InvalidAmount(bitcoin::amount::ParseAmountError),
@@ -63,6 +64,26 @@ impl std::error::Error for Error {
         }
     }
 }
+
+/// Why network validation failed after parsing.
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub enum NetworkError {
+    /// [`crate::Uri::require_network`] found the body address, or a
+    /// `bc=`/`tb=` parameter, that does not belong to the requested network.
+    NetworkMismatch,
+}
+
+impl fmt::Display for NetworkError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            NetworkError::NetworkMismatch => write!(f, "the URI is not valid for the requested network"),
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for NetworkError {}
 
 /// Why decoding an already-parsed parameter's value failed.
 ///

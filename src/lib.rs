@@ -35,7 +35,7 @@ use alloc::vec::Vec;
 use core::fmt;
 
 use bitcoin::address::NetworkValidation;
-pub use error::{AccessError, Error};
+pub use error::{AccessError, Error, NetworkError};
 pub use params::{ParamEntry, Params};
 
 /// A parsed `bitcoin:` URI.
@@ -73,16 +73,32 @@ where
 
 impl<V: NetworkValidation> Eq for Uri<V> where bitcoin::Address<V>: Eq {}
 
+/// Query parameter keys this crate validates as an address with a
+/// network-specific Human Readable Part, per BIP 321's
+/// "New payment instructions using bech32 or bech32m encodings SHOULD reuse
+/// their address format's Human Readable Part as the parameter key" rule.
+///
+/// Only the two HRPs `bitcoin`'s own address types use today are handled;
+/// a future address type's HRP can be added here without being a breaking
+/// change to callers, since this list is an implementation detail.
+pub(crate) const HRP_ADDRESS_KEYS: [(&str, bitcoin::Network); 2] = [("bc", bitcoin::Network::Bitcoin), ("tb", bitcoin::Network::Testnet)];
+
 impl Uri<bitcoin::address::NetworkUnchecked> {
     /// Parses a `bitcoin:` URI per BIP 321.
     ///
     /// The body address (before the `?`) is optional - BIP 321 allows a
     /// body-less URI such as `bitcoin:?sp=...` - and a query parameter may
     /// be value-less (`?foo` rather than `?foo=`). `label`, `message`,
-    /// `pop`, and `amount` may not repeat.
+    /// `pop`, and `amount` may not repeat. A `bc=`/`tb=` parameter's value
+    /// must itself be a valid address belonging to the network its key
+    /// names - `bitcoin:?bc=tb1...` is rejected for exactly this reason,
+    /// per BIP 321's own invalid example.
     ///
-    /// This does not check the body address against a *specific* network.
-    /// Call [`Uri::assume_checked`] to get a checked `Uri`.
+    /// This does not check the body address, or any `bc=`/`tb=` parameter,
+    /// against a *specific* network - that is [`Uri::require_network`]'s
+    /// job. A `tb1...` body address and a `bc=`-keyed mainnet address can
+    /// both parse out of the same URI; whether that combination is usable
+    /// is for the caller to decide once it knows which network it wants.
     pub fn parse(s: &str) -> Result<Self, Error> {
         const SCHEME: &str = "bitcoin:";
 
@@ -144,6 +160,12 @@ impl Uri<bitcoin::address::NetworkUnchecked> {
                     bitcoin::Amount::from_str_in(raw, bitcoin::amount::Denomination::Bitcoin).map_err(Error::InvalidAmount)?;
                 }
 
+                // Match the base key so a `req-` prefix cannot bypass the
+                // network check: `req-bc=tb1...` must still be rejected.
+                if let Some(&(_, network)) = HRP_ADDRESS_KEYS.iter().find(|(hrp, _)| base_key.eq_ignore_ascii_case(hrp)) {
+                    validate_hrp_param(key, raw_value.as_deref().unwrap_or(""), network)?;
+                }
+
                 params.push(ParamEntry {
                     key: key.to_owned(),
                     raw_value,
@@ -152,6 +174,40 @@ impl Uri<bitcoin::address::NetworkUnchecked> {
         }
 
         Ok(Uri { body, params })
+    }
+
+    /// `true` if the body address, and every `bc=`/`tb=` parameter, belongs
+    /// to `network`. A URI with no body and no HRP-keyed address parameters
+    /// is valid for every network.
+    pub fn is_valid_for_network(&self, network: bitcoin::Network) -> bool {
+        if let Some(body) = &self.body {
+            if !body.is_valid_for_network(network) {
+                return false;
+            }
+        }
+
+        HRP_ADDRESS_KEYS.iter().all(|(hrp, _)| {
+            self.params.get_all(hrp).all(|entry| {
+                let raw = entry.raw_value.as_deref().unwrap_or("");
+                match raw.parse::<bitcoin::Address<bitcoin::address::NetworkUnchecked>>().ok() {
+                    Some(address) => address.is_valid_for_network(network),
+                    None => false,
+                }
+            })
+        })
+    }
+
+    /// Checks whether this `Uri` - its body address and every `bc=`/`tb=`
+    /// parameter - is valid for `network`, and if so, marks it checked.
+    ///
+    /// For details about this mechanism, see section [*parsing
+    /// addresses*](bitcoin::Address#parsing-addresses) on
+    /// [`bitcoin::Address`].
+    pub fn require_network(self, network: bitcoin::Network) -> Result<Uri<bitcoin::address::NetworkChecked>, NetworkError> {
+        if !self.is_valid_for_network(network) {
+            return Err(NetworkError::NetworkMismatch);
+        }
+        Ok(self.assume_checked())
     }
 
     /// Marks this `Uri` validated without checking its network.
@@ -268,6 +324,15 @@ fn validate_percent_encoding(key: &str, s: &str) -> Result<(), Error> {
     Ok(())
 }
 
+/// Validates a `bc=`/`tb=`-style HRP-keyed address parameter: its value must
+/// itself be a valid address belonging to `network`.
+pub(crate) fn validate_hrp_param(_key: &str, raw_value: &str, network: bitcoin::Network) -> Result<(), Error> {
+    let address = raw_value
+        .parse::<bitcoin::Address<bitcoin::address::NetworkUnchecked>>()
+        .map_err(Error::InvalidBodyAddress)?;
+    address.require_network(network).map(|_| ()).map_err(Error::InvalidBodyAddress)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -275,6 +340,7 @@ mod tests {
 
     const LEGACY_MAINNET: &str = "1andreas3batLhQa2FawWjeyjCqyBzypd";
     const BECH32_MAINNET: &str = "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4";
+    const BECH32_TESTNET: &str = "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx";
 
     #[test]
     fn just_address_parses_with_a_body() {
@@ -420,5 +486,63 @@ mod tests {
         assert!(Error::InvalidScheme.source().is_none());
         let input = alloc::format!("bitcoin:{}?amount=nope", LEGACY_MAINNET);
         assert!(Uri::parse(&input).unwrap_err().source().is_some());
+    }
+
+    #[test]
+    fn a_mainnet_address_under_the_bc_key_parses() {
+        let input = alloc::format!("bitcoin:?bc={}", BECH32_MAINNET);
+        let uri = Uri::parse(&input).unwrap();
+        assert_eq!(uri.get("bc").unwrap().raw_value.as_deref(), Some(BECH32_MAINNET));
+    }
+
+    #[test]
+    fn a_testnet_address_under_the_bc_key_is_rejected() {
+        // BIP 321's own invalid example: `bitcoin:?bc=tb1...`.
+        let input = alloc::format!("bitcoin:?bc={}", BECH32_TESTNET);
+        assert!(Uri::parse(&input).is_err());
+    }
+
+    #[test]
+    fn a_testnet_address_under_the_tb_key_parses() {
+        let input = alloc::format!("bitcoin:?tb={}", BECH32_TESTNET);
+        let uri = Uri::parse(&input).unwrap();
+        assert_eq!(uri.get("tb").unwrap().raw_value.as_deref(), Some(BECH32_TESTNET));
+    }
+
+    #[test]
+    fn a_req_prefixed_hrp_param_is_still_network_checked() {
+        // `req-bc` has base key `bc` (mainnet); a testnet value must not slip
+        // through because of the `req-` prefix.
+        let input = alloc::format!("bitcoin:?req-bc={}", BECH32_TESTNET);
+        assert!(Uri::parse(&input).is_err());
+    }
+
+    #[test]
+    fn require_network_rejects_a_body_on_the_wrong_network() {
+        let input = alloc::format!("bitcoin:{}", BECH32_TESTNET);
+        let uri = Uri::parse(&input).unwrap();
+        assert!(uri.require_network(bitcoin::Network::Bitcoin).is_err());
+    }
+
+    #[test]
+    fn require_network_accepts_a_matching_body_and_hrp_param() {
+        let input = alloc::format!("bitcoin:{}?bc={}", BECH32_MAINNET, BECH32_MAINNET);
+        let uri = Uri::parse(&input).unwrap().require_network(bitcoin::Network::Bitcoin).unwrap();
+        assert!(uri.body().is_some());
+    }
+
+    #[test]
+    fn require_network_rejects_a_mismatched_hrp_param_even_with_a_matching_body() {
+        let input = alloc::format!("bitcoin:{}?tb={}", BECH32_MAINNET, BECH32_TESTNET);
+        let uri = Uri::parse(&input).unwrap();
+        assert!(uri.require_network(bitcoin::Network::Bitcoin).is_err());
+    }
+
+    #[test]
+    fn network_error_display_message_is_specific() {
+        assert_eq!(
+            NetworkError::NetworkMismatch.to_string(),
+            "the URI is not valid for the requested network"
+        );
     }
 }

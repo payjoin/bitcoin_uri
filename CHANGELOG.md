@@ -26,6 +26,9 @@
 - Parse-time `Error` and access-time `AccessError`, kept separate: a `Uri`
   parses as long as it is structurally valid, and decoding an individual
   value can fail later without failing the parse.
+- `Uri::require_network`/`is_valid_for_network` over the body and `bc=`/`tb=`
+  addresses, with parse-time rejection of an HRP param on the wrong network.
+- `NetworkError`, kept separate from the parse `Error`.
 
 ## 0.1.0
 
