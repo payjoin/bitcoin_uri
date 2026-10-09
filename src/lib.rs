@@ -44,6 +44,12 @@ extern crate alloc;
 pub mod de;
 pub mod ser;
 
+mod error;
+// The tokenizer is complete but nothing consumes it yet; the owned `Uri`
+// wires it in next. Until then its crate-internal helpers are unused.
+#[allow(dead_code)]
+mod params;
+
 use alloc::borrow::ToOwned;
 use alloc::borrow::Cow;
 #[cfg(feature = "non-compliant-bytes")]
@@ -57,6 +63,21 @@ use bitcoin::address::NetworkValidation;
 
 pub use de::{DeserializeParams, DeserializationState, DeserializationError};
 pub use ser::SerializeParams;
+
+pub use error::AccessError;
+pub use params::{ParamEntry, Params};
+
+/// Percent-decodes `s` and validates the result as UTF-8.
+///
+/// This is the strict decode: a byte sequence that isn't valid UTF-8 is
+/// itself the error, for an accessor like a typed parameter view where that
+/// distinction is the whole point.
+pub(crate) fn decode_to_string(s: &str) -> Result<String, AccessError> {
+    let bytes: alloc::vec::Vec<u8> = percent_encoding_rfc3986::percent_decode_str(s)
+        .map_err(AccessError::PercentDecode)?
+        .collect();
+    String::from_utf8(bytes).map_err(|_| AccessError::NotUtf8)
+}
 
 /// Parsed BIP21 URI.
 ///
