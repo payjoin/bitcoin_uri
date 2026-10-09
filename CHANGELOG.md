@@ -7,6 +7,15 @@
 - MSRV is 1.63, now declared in `rust-version`, and `bitcoin` must be at
   least 0.32.102. 1.63 matches `bitcoin-payment-instructions`, which this
   crate is meant to be a dependency of.
+- `Uri` is now owned and has no lifetime parameter: `Uri<V>` instead of
+  `Uri<'a, NetVal, Extras>`.
+- Removed the `Extras` type parameter and the `DeserializeParams`,
+  `DeserializationState`, `SerializeParams`, and `Param` traits/types. An
+  extension now reads its parameters straight off the parsed `Uri` via the
+  `Params` multimap instead of plugging a type into the parser.
+- Removed the `non-compliant-bytes` feature and the optional `either`
+  dependency. A non-UTF-8 parameter value is now an access-time error on the
+  typed accessor that needs it, not a separate API.
 
 ### Added
 
@@ -15,6 +24,9 @@
   `ParamEntry::decoded_value` for on-demand RFC 3986 decoding.
 - `AccessError`, returned when a value is read: its percent-decoded bytes
   may not be valid UTF-8.
+- Parse-time `Error`, separate from `AccessError`. Invalid
+  percent-encoding in any value fails the parse; a value that decodes to
+  bytes that are not UTF-8 fails only when it is read.
 
 ## 0.1.0
 
