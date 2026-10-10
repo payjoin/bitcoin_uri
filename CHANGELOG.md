@@ -35,6 +35,10 @@
   `lightning` off a parsed URI with `get` + `decoded_value`.
 - Byte-exact `Display` for a parsed `Uri` (bech32 bodies survive QR
   uppercase), plus `Uri::source_str` for the original string.
+- `UriBuilder`, assembling a `Uri` from typed parts whose `Display`
+  re-parses to the same parameters. `build` takes a network and rejects
+  mixed-network URIs.
+- `BuildError`, wrapping `NetworkError` for build-time network mismatch.
 
 ## 0.1.0
 
