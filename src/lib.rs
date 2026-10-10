@@ -51,7 +51,13 @@ pub use params::{ParamEntry, Params};
 /// `Uri` implements `FromStr` and `TryFrom<&str>` (equivalent to one
 /// another - there is no borrowed/zero-copy parse path in this owned
 /// design), producing a [`bitcoin::address::NetworkUnchecked`] `Uri`. Call
-/// [`Uri::assume_checked`] to get a `Uri<NetworkChecked>`.
+/// [`Uri::require_network`] or [`Uri::assume_checked`] to get a
+/// `Uri<NetworkChecked>`.
+///
+/// ## Displaying
+///
+/// `Display` with `{}` writes a parsed `Uri<NetworkChecked>` back as exactly
+/// the string it was parsed from, which [`Uri::source_str`] also returns.
 #[derive(Debug, Clone)]
 pub struct Uri<V = bitcoin::address::NetworkChecked>
 where
@@ -59,9 +65,17 @@ where
 {
     body: Option<bitcoin::Address<V>>,
     params: Params,
+    source: Option<String>,
 }
 
-/// Two `Uri`s are equal when their body and parameters are.
+/// Two `Uri`s are equal when their body and parameters are, regardless of
+/// where each came from. `source` is excluded deliberately: a `Uri` parsed
+/// from a string and one built from the same parts are the same URI, even
+/// though only the former carries the original text. Everything `source`
+/// affects - how `Display` writes a parsed URI, [`Uri::source_str`] - is observable through
+/// the other fields or is explicitly a provenance detail, so leaving it out
+/// keeps equality meaning "the same URI" rather than "parsed from the same
+/// bytes".
 impl<V: NetworkValidation> PartialEq for Uri<V>
 where
     bitcoin::Address<V>: PartialEq,
@@ -177,7 +191,11 @@ impl Uri<bitcoin::address::NetworkUnchecked> {
             }
         }
 
-        Ok(Uri { body, params })
+        Ok(Uri {
+            body,
+            params,
+            source: Some(s.to_owned()),
+        })
     }
 
     /// `true` if the body address, and every `bc=`/`tb=`/`bcrt=` parameter, belongs
@@ -220,6 +238,7 @@ impl Uri<bitcoin::address::NetworkUnchecked> {
         Uri {
             body: self.body.map(bitcoin::Address::assume_checked),
             params: self.params,
+            source: self.source,
         }
     }
 }
@@ -287,6 +306,12 @@ impl<V: NetworkValidation> Uri<V> {
         })
     }
 
+    /// The exact string this `Uri` was parsed from, when it was parsed
+    /// rather than built. `None` for a `Uri` assembled by hand.
+    pub fn source_str(&self) -> Option<&str> {
+        self.source.as_deref()
+    }
+
     /// The parsed `amount` parameter, if present.
     pub fn amount(&self) -> Option<bitcoin::Amount> {
         self.params.get("amount").and_then(|entry| {
@@ -315,13 +340,28 @@ impl<V: NetworkValidation> Uri<V> {
     }
 }
 
-/// Formats a `Uri<NetworkChecked>` as `bitcoin:<body>?<params>`, with
-/// parameters in their original order and key case.
+/// Formats a `Uri<NetworkChecked>`.
+///
+/// A parsed `Uri` is written back byte for byte: scheme case, an uppercase
+/// bech32 body, empty parameters, a trailing `&` or `?` and any `#fragment`
+/// all survive. A `Uri` cannot be changed after parsing, so its source is
+/// always the URI it describes.
+///
+/// A `Uri` with no source (one assembled from parts) is written as
+/// `bitcoin:<body>?<params>`, with its parameters in order. The body goes
+/// through the [`bitcoin::Address`] `Display`, which is lowercase for `{}`
+/// and uppercase for the alternate `{:#}` (QR alphanumeric mode). `{:#}`
+/// always formats this way, even for a parsed `Uri`.
 impl fmt::Display for Uri<bitcoin::address::NetworkChecked> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "bitcoin:")?;
-        if let Some(body) = &self.body {
-            write!(f, "{}", body)?;
+        if let Some(source) = self.source.as_deref().filter(|_| !f.alternate()) {
+            return f.write_str(source);
+        }
+        f.write_str("bitcoin:")?;
+        match &self.body {
+            Some(body) if f.alternate() => write!(f, "{:#}", body)?,
+            Some(body) => write!(f, "{}", body)?,
+            None => {},
         }
         if !self.params.is_empty() {
             write!(f, "?{}", self.params)?;
@@ -692,5 +732,109 @@ mod tests {
         // whether or not it is required.
         let uri = Uri::parse("bitcoin:?req-sp=sp1silent").unwrap();
         assert_eq!(uri.get("sp").expect("get should match req-sp").key, "req-sp");
+    }
+
+    #[test]
+    fn display_of_a_parsed_uri_is_its_input() {
+        let bodies = ["", LEGACY_MAINNET, BECH32_MAINNET, "BC1QW508D6QEJXTDG4Y5R3ZARVARY0C5XW7KV8F3T4"];
+        let queries = [
+            None,
+            Some(""),
+            Some("&"),
+            Some("a"),
+            Some("a="),
+            Some("a=b"),
+            Some("a&&b"),
+            Some("label=x&"),
+            Some("LABEL=Luke-Jr&Amount=1.5&req-pj=https://e.com/?x=a+b%23c"),
+            Some("bc=bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4&bc=bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4"),
+        ];
+        for scheme in ["bitcoin:", "BITCOIN:", "BitCoin:"] {
+            for body in bodies {
+                for query in queries {
+                    for fragment in [None, Some(""), Some("frag")] {
+                        let mut input = alloc::format!("{}{}", scheme, body);
+                        if let Some(query) = query {
+                            input = alloc::format!("{}?{}", input, query);
+                            // Without a query, a `#` would end up in the body.
+                            if let Some(fragment) = fragment {
+                                input = alloc::format!("{}#{}", input, fragment);
+                            }
+                        }
+                        let uri = Uri::parse(&input).unwrap_or_else(|e| panic!("{} should parse: {:?}", input, e));
+                        assert_eq!(uri.assume_checked().to_string(), input);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn alternate_display_of_a_parsed_uri_uppercases_the_body() {
+        let input = alloc::format!("BITCOIN:{}?label=Luke-Jr", BECH32_MAINNET);
+        let uri = Uri::parse(&input).unwrap().assume_checked();
+        let expected = alloc::format!("bitcoin:{}?label=Luke-Jr", BECH32_MAINNET.to_uppercase());
+        assert_eq!(alloc::format!("{:#}", uri), expected);
+    }
+
+    #[test]
+    fn source_str_returns_the_exact_input() {
+        let input = alloc::format!("bitcoin:{}?label=Luke-Jr", LEGACY_MAINNET);
+        let uri = Uri::parse(&input).unwrap();
+        assert_eq!(uri.source_str(), Some(input.as_str()));
+    }
+
+    #[test]
+    fn uppercase_bech32_body_survives_the_round_trip() {
+        // QR alphanumeric mode carries a bech32 address in uppercase. The
+        // `Address` Display would lowercase it, so the body must come back as
+        // written.
+        let input = alloc::format!("BITCOIN:{}", BECH32_MAINNET.to_uppercase());
+        let uri = Uri::parse(&input).unwrap().assume_checked();
+        assert_eq!(uri.to_string(), input);
+    }
+
+    #[test]
+    fn a_literal_plus_inside_pj_survives_parse_and_re_emission() {
+        let input = "bitcoin:?pj=https://example.com/?x=a+b";
+        let uri = Uri::parse(input).unwrap().assume_checked();
+        assert_eq!(uri.get("pj").unwrap().raw_value.as_deref(), Some("https://example.com/?x=a+b"));
+        assert_eq!(uri.to_string(), input);
+    }
+
+    #[test]
+    fn issue_10_round_trip_regression_passes() {
+        let valid_uri = "bitcoin:12c6DSiU4Rq3P4ZxziKxzrL5LmMBrzjrJX?amount=0.01&pjos=0&pj=HTTPS://EXAMPLE.COM/%23OH1QYPM5JXYNS754Y4R45QWE336QFX6ZR8DQGVQCULVZTV20TFVEYDMFQC";
+        let round_trip = valid_uri.parse::<Uri<_>>().unwrap().assume_checked().to_string();
+        assert_eq!(valid_uri, round_trip);
+
+        let uri = "Bitcoin:12c6DSiU4Rq3P4ZxziKxzrL5LmMBrzjrJX?6=q3Ҁf&pj=\u{3}\0\0\0\0\0\0http\r\r\r\r\r\r\r\r\r:\r\r\\.onion\\\\\\\\\\q3";
+        let round_trip = uri.parse::<Uri<_>>().unwrap().assume_checked().to_string();
+        assert_eq!(uri, round_trip);
+    }
+
+    #[test]
+    fn equality_is_by_body_and_params_not_provenance() {
+        // Two parses that differ only in scheme case have the same body and
+        // params but different source strings, and compare equal: source is
+        // excluded from equality.
+        let a = Uri::parse(&alloc::format!("bitcoin:{}?amount=1", LEGACY_MAINNET))
+            .unwrap()
+            .assume_checked();
+        let b = Uri::parse(&alloc::format!("BITCOIN:{}?amount=1", LEGACY_MAINNET))
+            .unwrap()
+            .assume_checked();
+        assert_ne!(a.source_str(), b.source_str());
+        assert_eq!(a, b);
+
+        // Different body, or different params: not equal.
+        let other_body = Uri::parse(&alloc::format!("bitcoin:{}?amount=1", BECH32_MAINNET))
+            .unwrap()
+            .assume_checked();
+        assert_ne!(a, other_body);
+        let other_params = Uri::parse(&alloc::format!("bitcoin:{}?amount=2", LEGACY_MAINNET))
+            .unwrap()
+            .assume_checked();
+        assert_ne!(a, other_params);
     }
 }

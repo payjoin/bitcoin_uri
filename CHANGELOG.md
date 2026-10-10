@@ -38,6 +38,8 @@
   does not understand, plus `ParamEntry::requirement`/`is_required`.
 - An `extension_params` example showing a consumer reading `pj`/`sp`/
   `lightning` off a parsed URI with `get` + `decoded_value`.
+- `Display` of a parsed `Uri` writes back the exact string it was parsed
+  from, and `Uri::source_str` returns it.
 
 ## 0.1.0
 
