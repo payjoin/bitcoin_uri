@@ -33,6 +33,8 @@
   does not understand, plus `ParamEntry::requirement`/`is_required`.
 - An `extension_params` example showing a consumer reading `pj`/`sp`/
   `lightning` off a parsed URI with `get` + `decoded_value`.
+- Byte-exact `Display` for a parsed `Uri` (bech32 bodies survive QR
+  uppercase), plus `Uri::source_str` for the original string.
 
 ## 0.1.0
 
