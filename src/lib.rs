@@ -266,6 +266,27 @@ impl<V: NetworkValidation> Uri<V> {
         self.params.get_all(key)
     }
 
+    /// The `req-` parameters this URI requires but the caller does not
+    /// understand, in source order.
+    ///
+    /// BIP 321 says a client MUST reject a URI carrying a `req-` parameter it
+    /// cannot handle. `understood` is the set of keys the caller does handle,
+    /// given without the `req-` prefix (`["pj", "sp"]`, not `["req-pj"]`) and
+    /// matched case-insensitively; every `req-` parameter whose stripped key
+    /// is absent from it is returned. An empty iterator means the URI is safe
+    /// to act on.
+    ///
+    /// This crate never enforces the rule itself - it only reports it - so a
+    /// `Uri` always parses regardless of its `req-` parameters, and the
+    /// caller decides what to do with any this returns.
+    #[must_use = "callers must reject a URI when this iterator is non-empty"]
+    pub fn unsatisfied_requirements<'a>(&'a self, understood: &'a [&str]) -> impl Iterator<Item = &'a ParamEntry> + 'a {
+        self.params.iter().filter(move |entry| match entry.requirement() {
+            Some(requirement) => !understood.iter().any(|key| key.eq_ignore_ascii_case(requirement)),
+            None => false,
+        })
+    }
+
     /// The parsed `amount` parameter, if present.
     pub fn amount(&self) -> Option<bitcoin::Amount> {
         self.params.get("amount").and_then(|entry| {
@@ -607,5 +628,69 @@ mod tests {
             NetworkError::NetworkMismatch.to_string(),
             "the URI is not valid for the requested network"
         );
+    }
+
+    #[test]
+    fn an_unclaimed_req_param_does_not_fail_parsing() {
+        // Unlike 0.1, the parser never enforces `req-` itself; it is
+        // reported by `unsatisfied_requirements` and left to the caller.
+        let input = alloc::format!("bitcoin:{}?req-somethingyoudontunderstand=50", LEGACY_MAINNET);
+        assert!(Uri::parse(&input).is_ok());
+    }
+
+    #[test]
+    fn an_unknown_req_param_is_unsatisfied() {
+        let input = alloc::format!("bitcoin:{}?req-foo=bar", LEGACY_MAINNET);
+        let uri = Uri::parse(&input).unwrap();
+        let unsatisfied: Vec<&str> = uri.unsatisfied_requirements(&[]).map(|e| e.key.as_str()).collect();
+        assert_eq!(unsatisfied, ["req-foo"]);
+    }
+
+    #[test]
+    fn a_req_param_the_caller_understands_is_satisfied() {
+        let input = alloc::format!("bitcoin:{}?req-pj=https://example.com", LEGACY_MAINNET);
+        let uri = Uri::parse(&input).unwrap();
+        assert_eq!(uri.unsatisfied_requirements(&["pj"]).count(), 0);
+    }
+
+    #[test]
+    fn understood_keys_are_matched_case_insensitively_and_without_the_prefix() {
+        let input = alloc::format!("bitcoin:{}?REQ-PJ=x", LEGACY_MAINNET);
+        let uri = Uri::parse(&input).unwrap();
+        // Given without the `req-` prefix, matched ignoring case.
+        assert_eq!(uri.unsatisfied_requirements(&["pj"]).count(), 0);
+        assert_eq!(uri.unsatisfied_requirements(&[]).count(), 1);
+    }
+
+    #[test]
+    fn plain_params_are_never_unsatisfied_requirements() {
+        let input = alloc::format!("bitcoin:{}?label=foo&pj=x&amount=1", LEGACY_MAINNET);
+        let uri = Uri::parse(&input).unwrap();
+        // None of these carry a `req-` prefix, so none are requirements.
+        assert_eq!(uri.unsatisfied_requirements(&[]).count(), 0);
+    }
+
+    #[test]
+    fn only_the_unsatisfied_requirements_surface_in_source_order() {
+        let input = alloc::format!("bitcoin:{}?req-pj=a&req-foo=b&sp=c&req-bar=d", LEGACY_MAINNET);
+        let uri = Uri::parse(&input).unwrap();
+        let unsatisfied: Vec<&str> = uri.unsatisfied_requirements(&["pj"]).map(|e| e.key.as_str()).collect();
+        assert_eq!(unsatisfied, ["req-foo", "req-bar"]);
+    }
+
+    #[test]
+    fn a_required_pop_is_reported_like_any_other_requirement() {
+        let input = alloc::format!("bitcoin:{}?req-pop=https://example.com/pop", LEGACY_MAINNET);
+        let uri = Uri::parse(&input).unwrap();
+        assert_eq!(uri.unsatisfied_requirements(&[]).count(), 1);
+        assert_eq!(uri.unsatisfied_requirements(&["pop"]).count(), 0);
+    }
+
+    #[test]
+    fn get_finds_a_req_prefixed_key_by_base_key() {
+        // `req-` is only a prefix, so a consumer that understands `sp` finds it
+        // whether or not it is required.
+        let uri = Uri::parse("bitcoin:?req-sp=sp1silent").unwrap();
+        assert_eq!(uri.get("sp").expect("get should match req-sp").key, "req-sp");
     }
 }

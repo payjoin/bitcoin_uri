@@ -34,6 +34,10 @@
   segwit address of the key's network, or parsing fails with
   `Error::InvalidHrpValue`.
 - `NetworkError`, kept separate from the parse `Error`.
+- `Uri::unsatisfied_requirements`, reporting the `req-` parameters a client
+  does not understand, plus `ParamEntry::requirement`/`is_required`.
+- An `extension_params` example showing a consumer reading `pj`/`sp`/
+  `lightning` off a parsed URI with `get` + `decoded_value`.
 
 ## 0.1.0
 
