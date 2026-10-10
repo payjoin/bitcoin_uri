@@ -9,7 +9,9 @@ Rust-idiomatic, compliant, flexible and performant bitcoin URI crate.
 yet stable. 0.1 remains the published, stable crate.
 
 * Rust-idiomatic: owned types, no lifetime parameter.
-* Compliant: parses the full BIP 321 shape, including a body-less URI.
+* Compliant: parses the full BIP 321 shape, including a body-less URI, and
+             reports `req-` parameters a client does not understand through
+             `Uri::unsatisfied_requirements` rather than enforcing them itself.
 * Flexible: an extension reads whatever parameters it needs straight off the
             parsed `Uri`; this crate never needs to know what they mean.
 * Performant: values stay percent-encoded until something decodes them.

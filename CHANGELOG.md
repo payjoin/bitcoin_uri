@@ -29,6 +29,10 @@
 - `Uri::require_network`/`is_valid_for_network` over the body and `bc=`/`tb=`
   addresses, with parse-time rejection of an HRP param on the wrong network.
 - `NetworkError`, kept separate from the parse `Error`.
+- `Uri::unsatisfied_requirements`, reporting the `req-` parameters a client
+  does not understand, plus `ParamEntry::requirement`/`is_required`.
+- An `extension_params` example showing a consumer reading `pj`/`sp`/
+  `lightning` off a parsed URI with `get` + `decoded_value`.
 
 ## 0.1.0
 
