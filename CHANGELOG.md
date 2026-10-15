@@ -1,5 +1,45 @@
 # bitcoin_uri Changelog
 
+## Unreleased
+
+### Breaking changes
+
+- MSRV is now 1.85, and the `bitcoin` dependency is 0.32.102, to track
+  rust-payjoin.
+- The body address is now optional, so a body-less URI such as
+  `bitcoin:?sp=...` parses. `Uri::body` returns `Option<Address<V>>`.
+- `Uri` is now owned and has no lifetime parameter: `Uri<V>` instead of
+  `Uri<'a, NetVal, Extras>`.
+- Removed the `Extras` type parameter and the `DeserializeParams`,
+  `DeserializationState`, `SerializeParams`, and `Param` traits/types. An
+  extension now reads its parameters straight off the parsed `Uri` via the
+  `Params` multimap instead of plugging a type into the parser.
+- Removed the `non-compliant-bytes` feature and the optional `either`
+  dependency. A non-UTF-8 parameter value is now an access-time error on the
+  typed accessor that needs it, not a separate API.
+
+### Added
+
+- `Params`/`ParamEntry`: an ordered, case-insensitive multimap of the raw
+  query parameters, preserving source order and percent-encoding, with
+  `ParamEntry::decoded_value` for on-demand RFC 3986 decoding.
+- Parse-time `Error` and access-time `AccessError`, kept separate: a `Uri`
+  parses as long as it is structurally valid, and decoding an individual
+  value can fail later without failing the parse.
+- `Uri::require_network`/`is_valid_for_network` over the body and `bc=`/`tb=`
+  addresses, with parse-time rejection of an HRP param on the wrong network.
+- `NetworkError`, kept separate from the parse `Error`.
+- `Uri::unsatisfied_requirements`, reporting the `req-` parameters a client
+  does not understand, plus `ParamEntry::requirement`/`is_required`.
+- An `extension_params` example showing a consumer reading `pj`/`sp`/
+  `lightning` off a parsed URI with `get` + `decoded_value`.
+- Byte-exact `Display` for a parsed `Uri` (bech32 bodies survive QR
+  uppercase), plus `Uri::source_str` for the original string.
+- `UriBuilder`, assembling a `Uri` from typed parts whose `Display`
+  re-parses to the same parameters. `build` takes a network and rejects
+  mixed-network URIs.
+- `BuildError`, wrapping `NetworkError` for build-time network mismatch.
+
 ## 0.1.0
 
 - Fork from [Kixunil/bip21 @ `eae7201`](https://github.com/Kixunil/bip21/commit/eae72026cc5838bb169949641948b8c1cef99cbe) v0.5.0.
