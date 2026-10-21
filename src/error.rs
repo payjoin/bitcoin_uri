@@ -18,6 +18,12 @@ pub enum Error {
     InvalidScheme,
     /// The body address (before the `?`) failed to parse.
     InvalidBodyAddress(bitcoin::address::ParseError),
+    /// A `bc`, `tb` or `bcrt` parameter's value is not a segwit address of
+    /// the network its key names.
+    InvalidHrpValue {
+        /// The parameter key as it appeared, e.g. `"req-bc"`.
+        key: String,
+    },
     /// The `amount` parameter failed to parse.
     InvalidAmount(bitcoin::amount::ParseAmountError),
     /// A `label`, `message`, `pop`, or `amount` parameter appeared more than
@@ -43,6 +49,9 @@ impl fmt::Display for Error {
         match self {
             Error::InvalidScheme => write!(f, "the URI has an invalid scheme"),
             Error::InvalidBodyAddress(_) => write!(f, "the URI contains an invalid address"),
+            Error::InvalidHrpValue { key } => {
+                write!(f, "the '{}' parameter's value is not a segwit address for its network", key)
+            },
             Error::InvalidAmount(_) => write!(f, "the amount parameter is invalid"),
             Error::DuplicateParameter(key) => write!(f, "the URI contains a duplicate '{}' parameter", key),
             Error::InvalidPercentEncoding { key, .. } => write!(f, "can not percent-decode parameter '{}'", key),
@@ -56,12 +65,34 @@ impl std::error::Error for Error {
         match self {
             Error::InvalidScheme => None,
             Error::InvalidBodyAddress(error) => Some(error),
+            Error::InvalidHrpValue { .. } => None,
             Error::InvalidAmount(error) => Some(error),
             Error::DuplicateParameter(_) => None,
             Error::InvalidPercentEncoding { error, .. } => Some(error),
         }
     }
 }
+
+/// Why network validation failed after parsing.
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub enum NetworkError {
+    /// [`crate::Uri::require_network`] found the body address, or a
+    /// `bc=`/`tb=`/`bcrt=` parameter, that does not belong to the requested
+    /// network.
+    NetworkMismatch,
+}
+
+impl fmt::Display for NetworkError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            NetworkError::NetworkMismatch => write!(f, "the URI is not valid for the requested network"),
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for NetworkError {}
 
 /// Why decoding an already-parsed parameter's value failed.
 ///

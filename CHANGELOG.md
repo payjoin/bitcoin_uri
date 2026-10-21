@@ -29,6 +29,11 @@
 - Parse-time `Error`, separate from `AccessError`. Invalid
   percent-encoding in any value fails the parse; a value that decodes to
   bytes that are not UTF-8 fails only when it is read.
+- `Uri::require_network`/`is_valid_for_network` over the body and the
+  `bc`/`tb`/`bcrt` parameters. A value under one of those keys must be a
+  segwit address of the key's network, or parsing fails with
+  `Error::InvalidHrpValue`.
+- `NetworkError`, kept separate from the parse `Error`.
 
 ## 0.1.0
 
