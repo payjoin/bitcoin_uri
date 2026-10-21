@@ -26,6 +26,7 @@ extern crate std;
 
 extern crate alloc;
 
+mod builder;
 mod error;
 mod params;
 
@@ -35,7 +36,8 @@ use alloc::vec::Vec;
 use core::fmt;
 
 use bitcoin::address::NetworkValidation;
-pub use error::{AccessError, Error, NetworkError};
+pub use builder::UriBuilder;
+pub use error::{AccessError, BuildError, Error, NetworkError};
 pub use params::{ParamEntry, Params};
 
 /// A parsed `bitcoin:` URI.
@@ -340,6 +342,18 @@ impl<V: NetworkValidation> Uri<V> {
     }
 }
 
+impl Uri<bitcoin::address::NetworkChecked> {
+    /// Assembles a checked `Uri` from parts, with no source string.
+    ///
+    /// The only constructor of a built (as opposed to parsed) `Uri`; used by
+    /// [`UriBuilder::build`]. `source` is `None`, so
+    /// [`source_str`](Self::source_str) returns `None` and callers fall back
+    /// to [`Display`](fmt::Display) for the string form.
+    pub(crate) fn from_checked_parts(body: Option<bitcoin::Address>, params: Params) -> Self {
+        Uri { body, params, source: None }
+    }
+}
+
 /// Formats a `Uri<NetworkChecked>`.
 ///
 /// A parsed `Uri` is written back byte for byte: scheme case, an uppercase
@@ -347,7 +361,7 @@ impl<V: NetworkValidation> Uri<V> {
 /// all survive. A `Uri` cannot be changed after parsing, so its source is
 /// always the URI it describes.
 ///
-/// A `Uri` with no source (one assembled from parts) is written as
+/// A `Uri` with no source (one from [`UriBuilder::build`]) is written as
 /// `bitcoin:<body>?<params>`, with its parameters in order. The body goes
 /// through the [`bitcoin::Address`] `Display`, which is lowercase for `{}`
 /// and uppercase for the alternate `{:#}` (QR alphanumeric mode). `{:#}`
@@ -398,6 +412,9 @@ fn validate_percent_encoding(key: &str, s: &str) -> Result<(), Error> {
 /// `bcrt`. Requiring a witness program rules out base58, and for a segwit
 /// address `require_network` checks the HRP: `tb1...` is not valid for
 /// regtest, nor `bcrt1...` for testnet.
+///
+/// Used both at parse time and by [`UriBuilder::build`], so a built URI is
+/// held to the same rule a parsed one is and round-trips.
 pub(crate) fn validate_hrp_param(key: &str, raw_value: &str, network: bitcoin::Network) -> Result<(), Error> {
     let is_segwit_on_network = raw_value
         .parse::<bitcoin::Address<bitcoin::address::NetworkUnchecked>>()
@@ -815,26 +832,143 @@ mod tests {
 
     #[test]
     fn equality_is_by_body_and_params_not_provenance() {
-        // Two parses that differ only in scheme case have the same body and
-        // params but different source strings, and compare equal: source is
-        // excluded from equality.
-        let a = Uri::parse(&alloc::format!("bitcoin:{}?amount=1", LEGACY_MAINNET))
+        let input = alloc::format!("bitcoin:{}", BECH32_MAINNET);
+        let parsed = Uri::parse(&input).unwrap().require_network(bitcoin::Network::Bitcoin).unwrap();
+        let address = BECH32_MAINNET
+            .parse::<bitcoin::Address<bitcoin::address::NetworkUnchecked>>()
             .unwrap()
             .assume_checked();
-        let b = Uri::parse(&alloc::format!("BITCOIN:{}?amount=1", LEGACY_MAINNET))
-            .unwrap()
-            .assume_checked();
-        assert_ne!(a.source_str(), b.source_str());
-        assert_eq!(a, b);
+        let built = UriBuilder::new().address(address).build().unwrap();
+        // Different provenance (parsed carries a source, built does not) but
+        // the same body and params: equal.
+        assert!(parsed.source_str().is_some());
+        assert!(built.source_str().is_none());
+        assert_eq!(parsed, built);
 
-        // Different body, or different params: not equal.
-        let other_body = Uri::parse(&alloc::format!("bitcoin:{}?amount=1", BECH32_MAINNET))
+        // Same params, different body: not equal.
+        let other_body = Uri::parse(&alloc::format!("bitcoin:{}", LEGACY_MAINNET))
+            .unwrap()
+            .require_network(bitcoin::Network::Bitcoin)
+            .unwrap();
+        assert_ne!(parsed, other_body);
+
+        // Same body, different params: not equal.
+        let with_param = Uri::parse(&alloc::format!("bitcoin:{}?label=x", BECH32_MAINNET))
+            .unwrap()
+            .require_network(bitcoin::Network::Bitcoin)
+            .unwrap();
+        assert_ne!(parsed, with_param);
+    }
+
+    #[test]
+    #[cfg(feature = "std")]
+    fn build_error_source_is_present_only_for_the_network_variant() {
+        use std::error::Error as _;
+        assert!(BuildError::Network(NetworkError::NetworkMismatch).source().is_some());
+        assert!(BuildError::InvalidKey("x".to_string()).source().is_none());
+    }
+
+    #[test]
+    fn alternate_display_of_a_built_uri_uppercases_the_body() {
+        // A built URI has no source, so the body goes through the `Address`
+        // Display: `{}` is lowercase, `{:#}` is uppercase (QR alphanumeric
+        // mode). The alternate flag must pick between them.
+        let address = BECH32_MAINNET
+            .parse::<bitcoin::Address<bitcoin::address::NetworkUnchecked>>()
             .unwrap()
             .assume_checked();
-        assert_ne!(a, other_body);
-        let other_params = Uri::parse(&alloc::format!("bitcoin:{}?amount=2", LEGACY_MAINNET))
+        let uri = UriBuilder::new().address(address).build().unwrap();
+        assert_eq!(alloc::format!("{}", uri), alloc::format!("bitcoin:{}", BECH32_MAINNET));
+        assert_eq!(alloc::format!("{:#}", uri), alloc::format!("bitcoin:{}", BECH32_MAINNET.to_uppercase()));
+    }
+
+    #[test]
+    fn error_display_messages_are_distinct_and_mention_the_key() {
+        let bad_scheme = Error::InvalidScheme.to_string();
+        let dup = Error::DuplicateParameter("label".to_owned()).to_string();
+        let amount = Uri::parse("bitcoin:?amount=nope").unwrap_err().to_string();
+        assert_ne!(bad_scheme, amount);
+        assert!(dup.contains("label"));
+    }
+
+    #[test]
+    fn access_error_display_messages_are_specific() {
+        assert_eq!(AccessError::NotUtf8.to_string(), "value is not valid UTF-8");
+        let decode_err = percent_encoding_rfc3986::percent_decode_str("%zz").unwrap_err();
+        assert_eq!(AccessError::PercentDecode(decode_err).to_string(), "invalid percent-encoding");
+    }
+
+    #[test]
+    #[cfg(feature = "std")]
+    fn access_error_source_matches_its_variant() {
+        use std::error::Error as _;
+        assert!(AccessError::NotUtf8.source().is_none());
+        let decode_error = percent_encoding_rfc3986::percent_decode_str("%zz").unwrap_err();
+        assert!(AccessError::PercentDecode(decode_error).source().is_some());
+    }
+
+    #[test]
+    fn params_iter_and_into_iter_agree_and_see_every_entry() {
+        let input = alloc::format!("bitcoin:{}?label=foo&message=bar", LEGACY_MAINNET);
+        let uri = Uri::parse(&input).unwrap();
+        let via_iter: Vec<&str> = uri.params().iter().map(|entry| entry.key.as_str()).collect();
+        let via_into_iter: Vec<&str> = uri.params().into_iter().map(|entry| entry.key.as_str()).collect();
+        assert_eq!(via_iter, ["label", "message"]);
+        assert_eq!(via_iter, via_into_iter);
+    }
+
+    #[test]
+    fn a_param_value_is_tokenized_verbatim_and_decoded_on_demand() {
+        // The crate tokenizes: the raw value stays percent-encoded and the
+        // consumer decodes with `decoded_value` when it wants the text. `+` is
+        // a literal plus, never a space.
+        let uri = Uri::parse("bitcoin:?lightning=a+b%20c").unwrap();
+        let entry = uri.get("lightning").unwrap();
+        assert_eq!(entry.raw_value.as_deref(), Some("a+b%20c"));
+        assert_eq!(entry.decoded_value().unwrap().unwrap(), "a+b c");
+    }
+
+    #[test]
+    fn decoded_value_is_none_for_a_value_less_param() {
+        let uri = Uri::parse("bitcoin:?flag").unwrap();
+        assert!(uri.get("flag").unwrap().decoded_value().is_none());
+    }
+
+    #[test]
+    fn pop_decodes_its_percent_encoded_value() {
+        let input = "bitcoin:?pop=hello%20world";
+        let uri = Uri::parse(input).unwrap();
+        assert_eq!(uri.pop().unwrap().unwrap(), "hello world");
+    }
+
+    #[test]
+    fn pop_is_none_when_absent() {
+        let uri = Uri::parse("bitcoin:?label=Luke-Jr").unwrap();
+        assert!(uri.pop().is_none());
+    }
+
+    #[test]
+    fn bad_unicode_scheme_is_rejected() {
+        let input = "bitcoinö:1andreas3batLhQa2FawWjeyjCqyBzypd";
+        assert!(Uri::parse(input).is_err());
+    }
+
+    #[test]
+    fn a_bodyless_uri_with_only_unknown_params_parses() {
+        let uri = Uri::parse("bitcoin:?unknown=x")
             .unwrap()
-            .assume_checked();
-        assert_ne!(a, other_params);
+            .require_network(bitcoin::Network::Bitcoin)
+            .unwrap();
+        assert!(uri.body().is_none());
+        assert_eq!(uri.get("unknown").unwrap().raw_value.as_deref(), Some("x"));
+    }
+
+    #[test]
+    fn mixed_extension_keys_all_survive_parsing() {
+        let input = "bitcoin:?lno=lno1bogusoffer&sp=sp1qsilentpaymentaddress";
+        let uri = Uri::parse(input).unwrap();
+        assert!(uri.body().is_none());
+        assert_eq!(uri.get("lno").unwrap().raw_value.as_deref(), Some("lno1bogusoffer"));
+        assert_eq!(uri.get("sp").unwrap().raw_value.as_deref(), Some("sp1qsilentpaymentaddress"));
     }
 }

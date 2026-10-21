@@ -128,3 +128,61 @@ impl std::error::Error for AccessError {
         }
     }
 }
+
+/// Why [`crate::UriBuilder::build`] could not produce a valid URI.
+///
+/// Distinct from [`Error`], which is about parsing a string: these are the
+/// ways a `Uri` assembled from typed parts can still be ill-formed.
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub enum BuildError {
+    /// A parameter key is empty, is a bare `req-`, is not made of RFC 3986
+    /// query characters other than `&` and `=`, or has an invalid `%` escape.
+    InvalidKey(String),
+    /// A raw parameter value is not made of RFC 3986 query characters other
+    /// than `&` and `=`, or has an invalid `%` escape.
+    InvalidRawValue {
+        /// The parameter key whose raw value is invalid.
+        key: String,
+    },
+    /// A parameter BIP 321 forbids from repeating (`amount`, `label`,
+    /// `message`, or `pop`) was added more than once - typically by also
+    /// setting it through [`crate::UriBuilder::param`] or
+    /// [`crate::UriBuilder::raw_param`].
+    DuplicateParameter(String),
+    /// A `bc`, `tb` or `bcrt` parameter's value is not a segwit address of the
+    /// network its key names, so the built URI would not parse back.
+    InvalidHrpValue {
+        /// The HRP parameter key, e.g. `"bc"`.
+        key: String,
+    },
+    /// The HRP-keyed parameters name different networks, or the body does not
+    /// belong to the network they name. A checked URI never mixes networks.
+    Network(NetworkError),
+}
+
+impl fmt::Display for BuildError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            BuildError::InvalidKey(key) => write!(f, "the '{}' parameter key is invalid", key),
+            BuildError::InvalidRawValue { key } => write!(f, "the '{}' parameter's raw value is invalid", key),
+            BuildError::DuplicateParameter(key) => {
+                write!(f, "the '{}' parameter was set more than once", key)
+            },
+            BuildError::InvalidHrpValue { key } => {
+                write!(f, "the '{}' parameter's value is not a valid address for its network", key)
+            },
+            BuildError::Network(error) => write!(f, "{}", error),
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for BuildError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            BuildError::Network(error) => Some(error),
+            _ => None,
+        }
+    }
+}

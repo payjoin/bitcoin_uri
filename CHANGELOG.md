@@ -40,6 +40,12 @@
   `lightning` off a parsed URI with `get` + `decoded_value`.
 - `Display` of a parsed `Uri` writes back the exact string it was parsed
   from, and `Uri::source_str` returns it.
+- `UriBuilder`, assembling a `Uri` from typed parts. Its output parses back
+  to the same parameters: keys and raw values must be RFC 3986 query
+  characters, and `build` checks each `bc`/`tb`/`bcrt` address against the
+  network its key names and the body against that network, rejecting a
+  URI that mixes networks.
+- `BuildError`, wrapping `NetworkError` for build-time network mismatch.
 
 ## 0.1.0
 
