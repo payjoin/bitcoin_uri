@@ -4,9 +4,8 @@ Rust-idiomatic, compliant, flexible and performant bitcoin URI crate.
 
 ## About
 
-**Important:** this is the 0.2 line, a rewrite against
-[issue #12](https://github.com/payjoin/bitcoin_uri/issues/12). Its API is not
-yet stable. 0.1 remains the published, stable crate.
+0.2 replaces the 0.1 API. [CHANGELOG.md](CHANGELOG.md) lists what changed
+for a 0.1 user.
 
 * Rust-idiomatic: owned types, no lifetime parameter.
 * Compliant: parses the full BIP 321 shape, including a body-less URI, and

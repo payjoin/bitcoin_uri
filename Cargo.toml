@@ -7,7 +7,7 @@ rust-version = "1.63"
 description = "Rust-idiomatic, compliant, flexible and performant bitcoin URI crate."
 repository = "https://github.com/payjoin/bitcoin_uri"
 readme = "README.md"
-keywords = ["bitcoin", "bip21", "parsing", "newtypes"]
+keywords = ["bitcoin", "bip21", "bip321", "parsing", "newtypes"]
 categories = ["cryptography::cryptocurrencies", "encoding", "rust-patterns", "value-formatting"]
 license = "MITNFA"
 
