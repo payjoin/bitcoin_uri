@@ -136,8 +136,8 @@ impl std::error::Error for AccessError {
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub enum BuildError {
-    /// A parameter key is empty, is a bare `req-`, is not made of RFC 3986
-    /// query characters other than `&` and `=`, or has an invalid `%` escape.
+    /// A parameter key is empty, is a bare `req-`, or is not made of RFC 3986
+    /// query characters other than `&`, `=` and `%`.
     InvalidKey(String),
     /// A raw parameter value is not made of RFC 3986 query characters other
     /// than `&` and `=`, or has an invalid `%` escape.

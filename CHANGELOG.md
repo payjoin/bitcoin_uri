@@ -42,7 +42,7 @@
   from, and `Uri::source_str` returns it.
 - `UriBuilder`, assembling a `Uri` from typed parts. Its output parses back
   to the same parameters: keys and raw values must be RFC 3986 query
-  characters, and `build` checks each `bc`/`tb`/`bcrt` address against the
+  characters, keys may not contain `%`, and `build` checks each `bc`/`tb`/`bcrt` address against the
   network its key names and the body against that network, rejecting a
   URI that mixes networks.
 - `BuildError`, wrapping `NetworkError` for build-time network mismatch.

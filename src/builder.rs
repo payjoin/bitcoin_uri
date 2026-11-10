@@ -58,8 +58,13 @@ fn is_qchars(s: &str) -> bool {
 
 /// BIP 321 has `otherparam = qchar *qchar ...` and `reqparam = "req-" qchar
 /// *qchar ...`, so a key and its base key are both non-empty.
+///
+/// A key may not contain `%`. Parsing matches keys literally, so
+/// `%61mount` is an unknown key and not `amount`, but RFC 3986 makes the two
+/// equivalent and a reader that decodes keys would see `amount`. Never
+/// emitting an escape in a key keeps every reader on the same meaning.
 fn key_round_trips(key: &str) -> bool {
-    is_qchars(key) && !params::base_key(key).is_empty()
+    is_qchars(key) && !key.contains('%') && !params::base_key(key).is_empty()
 }
 
 fn raw_value_round_trips(value: &str) -> bool {
@@ -142,8 +147,8 @@ impl UriBuilder {
     /// network its key names, which [`build`](Self::build) checks, so the
     /// built URI parses back. The value is treated as decoded text and
     /// encoded for you. The key is used as given. It must be non-empty, not a
-    /// bare `req-`, and made of RFC 3986 query characters other than `&` and
-    /// `=`, with valid `%` escapes.
+    /// bare `req-`, and made of RFC 3986 query characters other than `&`, `=`
+    /// and `%`.
     pub fn param(mut self, key: &str, value: &str) -> Self {
         self.push(key, encode(value));
         self
@@ -163,9 +168,10 @@ impl UriBuilder {
 
     /// Finishes building, or reports why the parts do not form a valid URI.
     ///
-    /// Fails if a key is empty or a bare `req-`, if a key or raw value is not
-    /// made of RFC 3986 query characters other than `&` and `=` with valid `%`
-    /// escapes, if a non-repeatable parameter
+    /// Fails if a key is empty, is a bare `req-`, or is not made of RFC 3986
+    /// query characters other than `&`, `=` and `%`. Fails if a raw value is
+    /// not made of RFC 3986 query characters other than `&` and `=`, with
+    /// valid `%` escapes. Fails if a non-repeatable parameter
     /// (`amount`/`label`/`message`/`pop`) was set more than once, or if an
     /// `amount` does not parse.
     ///
@@ -326,6 +332,15 @@ mod tests {
     }
 
     #[test]
+    fn percent_encoded_keys_fail_to_build() {
+        let result = UriBuilder::new().raw_param("%61mount", "1").build();
+        assert!(matches!(result, Err(BuildError::InvalidKey(ref key)) if key == "%61mount"));
+
+        let result = UriBuilder::new().param("req-%70j", "x").build();
+        assert!(matches!(result, Err(BuildError::InvalidKey(ref key)) if key == "req-%70j"));
+    }
+
+    #[test]
     fn raw_values_that_would_not_round_trip_fail_to_build() {
         let result = UriBuilder::new().raw_param("x", "a&b").build();
         assert!(matches!(result, Err(BuildError::InvalidRawValue { ref key }) if key == "x"));
@@ -454,10 +469,7 @@ mod tests {
                 result
             );
         }
-        let built = UriBuilder::new()
-            .raw_param("k-._~!$'()*+,;:@/?%41", "-._~!$'()*+,;:@/?%41")
-            .build()
-            .unwrap();
+        let built = UriBuilder::new().raw_param("k-._~!$'()*+,;:@/?", "-._~!$'()*+,;:@/?%41").build().unwrap();
         assert_eq!(Uri::parse(&built.to_string()).unwrap().assume_checked(), built);
     }
 
