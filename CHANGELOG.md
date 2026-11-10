@@ -1,5 +1,52 @@
 # bitcoin_uri Changelog
 
+## Unreleased
+
+### Breaking changes
+
+- MSRV is 1.63, now declared in `rust-version`, and `bitcoin` must be at
+  least 0.32.102. 1.63 matches `bitcoin-payment-instructions`, which this
+  crate is meant to be a dependency of.
+- The body address is now optional, so a body-less URI such as
+  `bitcoin:?sp=...` parses. `Uri::body` returns `Option<&Address<V>>`.
+- `Uri` is now owned and has no lifetime parameter: `Uri<V>` instead of
+  `Uri<'a, NetVal, Extras>`.
+- Removed the `Extras` type parameter and the `DeserializeParams`,
+  `DeserializationState`, `SerializeParams`, and `Param` traits/types. An
+  extension now reads its parameters straight off the parsed `Uri` via the
+  `Params` multimap instead of plugging a type into the parser.
+- Removed the `non-compliant-bytes` feature and the optional `either`
+  dependency. A non-UTF-8 parameter value is now an access-time error on the
+  typed accessor that needs it, not a separate API.
+
+### Added
+
+- `Params`/`ParamEntry`: an ordered, case-insensitive multimap of the raw
+  query parameters, preserving source order and percent-encoding, with
+  `ParamEntry::decoded_value` for on-demand RFC 3986 decoding.
+- `AccessError`, returned when a value is read: its percent-decoded bytes
+  may not be valid UTF-8.
+- Parse-time `Error`, separate from `AccessError`. Invalid
+  percent-encoding in any value fails the parse; a value that decodes to
+  bytes that are not UTF-8 fails only when it is read.
+- `Uri::require_network`/`is_valid_for_network` over the body and the
+  `bc`/`tb`/`bcrt` parameters. A value under one of those keys must be a
+  segwit address of the key's network, or parsing fails with
+  `Error::InvalidHrpValue`.
+- `NetworkError`, kept separate from the parse `Error`.
+- `Uri::unsatisfied_requirements`, reporting the `req-` parameters a client
+  does not understand, plus `ParamEntry::requirement`/`is_required`.
+- An `extension_params` example showing a consumer reading `pj`/`sp`/
+  `lightning` off a parsed URI with `get` + `decoded_value`.
+- `Display` of a parsed `Uri` writes back the exact string it was parsed
+  from, and `Uri::source_str` returns it.
+- `UriBuilder`, assembling a `Uri` from typed parts. Its output parses back
+  to the same parameters: keys and raw values must be RFC 3986 query
+  characters, and `build` checks each `bc`/`tb`/`bcrt` address against the
+  network its key names and the body against that network, rejecting a
+  URI that mixes networks.
+- `BuildError`, wrapping `NetworkError` for build-time network mismatch.
+
 ## 0.1.0
 
 - Fork from [Kixunil/bip21 @ `eae7201`](https://github.com/Kixunil/bip21/commit/eae72026cc5838bb169949641948b8c1cef99cbe) v0.5.0.
