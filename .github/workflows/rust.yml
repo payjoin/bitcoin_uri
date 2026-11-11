@@ -54,3 +54,5 @@ jobs:
         run: cargo update -p cc --precise 1.1.31
       - name: Test
         run: cargo test
+      - name: Test with all features
+        run: cargo test --all-features

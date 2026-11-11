@@ -114,6 +114,12 @@ impl Uri<bitcoin::address::NetworkUnchecked> {
     /// value must be a segwit address of the network its key names. BIP 321's
     /// invalid example `bitcoin:?bc=tb1...` fails this check.
     ///
+    /// The parameters end at the first `#` after the `?`, as an RFC 3986
+    /// query does, and the fragment after it is ignored. A value containing
+    /// `#`, such as a `pj` URL with a fragment, must encode it as `%23`.
+    /// Otherwise that value is cut short and every parameter after it is
+    /// dropped without an error.
+    ///
     /// This does not check the body address, or any HRP-keyed parameter,
     /// against a *specific* network - that is [`Uri::require_network`]'s
     /// job. A `tb1...` body address and a `bc=`-keyed mainnet address can
@@ -296,6 +302,11 @@ impl<V: NetworkValidation> Uri<V> {
     /// matched case-insensitively; every `req-` parameter whose stripped key
     /// is absent from it is returned. An empty iterator means the URI is safe
     /// to act on.
+    ///
+    /// That includes the keys this crate parses itself (`amount`, `label`,
+    /// `message`, `pop`, `bc`, `tb`, `bcrt`). Parsing a value does not mean
+    /// the caller acts on it, so a caller that honors `req-amount` lists
+    /// `"amount"` too.
     ///
     /// This crate never enforces the rule itself - it only reports it - so a
     /// `Uri` always parses regardless of its `req-` parameters, and the

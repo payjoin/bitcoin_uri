@@ -47,8 +47,10 @@ fn main() {
     }
 
     // A consumer declares the extensions it understands; anything `req-` it
-    // does not understand means it MUST reject the URI. Here it handles `pj`
-    // and `sp` but not, say, a hypothetical `req-foo`.
+    // does not understand means it MUST reject the URI. Here it handles `pj`,
+    // `sp` and `lightning` but not, say, a hypothetical `req-foo`. A wallet
+    // that also acts on `amount` or `label` lists them too, or it rejects
+    // `req-amount`.
     let understood = ["pj", "sp", "lightning"];
     let unsatisfied = uri.unsatisfied_requirements(&understood).count();
     assert_eq!(unsatisfied, 0, "every required extension is understood");
