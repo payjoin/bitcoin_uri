@@ -120,6 +120,12 @@ impl Uri<bitcoin::address::NetworkUnchecked> {
     /// Otherwise that value is cut short and every parameter after it is
     /// dropped without an error.
     ///
+    /// Keys are matched as written, without percent-decoding, so
+    /// `%61mount=1` is an unknown parameter and not `amount`. RFC 3986 makes
+    /// the two equivalent, so a reader that decodes keys sees an amount where
+    /// this crate sees none. [`UriBuilder`] never writes an escape in a key,
+    /// so it cannot produce such a URI.
+    ///
     /// This does not check the body address, or any HRP-keyed parameter,
     /// against a *specific* network - that is [`Uri::require_network`]'s
     /// job. A `tb1...` body address and a `bc=`-keyed mainnet address can
