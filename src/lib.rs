@@ -124,7 +124,8 @@ impl Uri<bitcoin::address::NetworkUnchecked> {
     /// `%61mount=1` is an unknown parameter and not `amount`. RFC 3986 makes
     /// the two equivalent, so a reader that decodes keys sees an amount where
     /// this crate sees none. [`UriBuilder`] never writes an escape in a key,
-    /// so it cannot produce such a URI.
+    /// so it cannot produce such a URI, and [`Uri::into_builder`] on one fails
+    /// to build.
     ///
     /// This does not check the body address, or any HRP-keyed parameter,
     /// against a *specific* network - that is [`Uri::require_network`]'s
@@ -368,6 +369,24 @@ impl Uri<bitcoin::address::NetworkChecked> {
     /// to [`Display`](fmt::Display) for the string form.
     pub(crate) fn from_checked_parts(body: Option<bitcoin::Address>, params: Params) -> Self {
         Uri { body, params, source: None }
+    }
+
+    /// Turns this URI into a [`UriBuilder`] holding its body and every
+    /// parameter as parsed.
+    ///
+    /// Keys keep their case and any `req-` prefix, values stay
+    /// percent-encoded as they were, and a value-less parameter stays
+    /// value-less. A typed setter such as [`UriBuilder::amount`] then replaces
+    /// the existing parameter in place, so a `req-amount` stays required.
+    ///
+    /// [`UriBuilder::build`] checks the result as it checks any other, so a
+    /// parsed URI the builder cannot write, such as one with a
+    /// percent-encoded key, fails there rather than being changed. The built
+    /// URI has no source string, so it prints in the builder's form: the
+    /// fragment and the original spelling of the scheme and body are not
+    /// kept.
+    pub fn into_builder(self) -> UriBuilder {
+        UriBuilder::from_parts(self.body, self.params.into_entries())
     }
 }
 

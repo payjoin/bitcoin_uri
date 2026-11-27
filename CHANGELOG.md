@@ -1,5 +1,20 @@
 # bitcoin_uri Changelog
 
+## Unreleased
+
+### Added
+
+- `Uri::into_builder`, which turns a checked `Uri` into a `UriBuilder`
+  holding its body and every parameter as parsed, so a URI can be rebuilt
+  with a new amount without losing `lightning`, `sp` or a `req-` prefix.
+
+### Changed
+
+- A typed `UriBuilder` setter (`amount`, `label`, `message`) replaces an
+  existing parameter with the same base key and keeps its key, so it
+  replaces a `req-amount` instead of adding a second `amount` that fails to
+  build.
+
 ## 0.2.0
 
 0.2 parses BIP 321, the successor to BIP 21, and replaces the 0.1 API. `Uri`

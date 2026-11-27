@@ -107,6 +107,11 @@ impl Params {
         self.entries.push(entry);
     }
 
+    /// The entries, in source order.
+    pub(crate) fn into_entries(self) -> Vec<ParamEntry> {
+        self.entries
+    }
+
     /// The first entry whose base key matches `key`'s base key
     /// case-insensitively, so `get("pj")` and `get("req-pj")` both find
     /// `pj` and `req-pj`.
