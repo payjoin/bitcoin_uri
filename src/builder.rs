@@ -80,7 +80,10 @@ fn is_non_repeatable_base_key(key: &str, base_key: &str) -> bool {
 /// The setters are chainable and consume `self`. A non-repeatable parameter
 /// (`amount`, `label`, `message`) set more than once through its own setter
 /// keeps only the last value; a duplicate introduced through [`param`] or
-/// [`raw_param`] is caught by [`build`] instead.
+/// [`raw_param`] is caught by [`build`] instead. A typed setter replaces an
+/// existing parameter with the same base key and keeps that parameter's
+/// key, so setting the amount on a builder from [`Uri::into_builder`] keeps
+/// a `req-amount` required.
 ///
 /// [`param`]: UriBuilder::param
 /// [`raw_param`]: UriBuilder::raw_param
@@ -108,6 +111,10 @@ impl UriBuilder {
     /// A builder for a URI with no body and no parameters.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub(crate) fn from_parts(body: Option<bitcoin::Address>, entries: Vec<ParamEntry>) -> Self {
+        UriBuilder { body, entries }
     }
 
     /// Sets the body address (the part before the `?`), replacing any
@@ -239,7 +246,7 @@ impl UriBuilder {
     }
 
     fn set_unique(&mut self, key: &str, value: String) {
-        match self.entries.iter_mut().find(|entry| entry.key.eq_ignore_ascii_case(key)) {
+        match self.entries.iter_mut().find(|entry| entry.base_key_eq(key)) {
             Some(entry) => entry.raw_value = Some(value),
             None => self.push(key, value),
         }
@@ -308,6 +315,51 @@ mod tests {
         let uri = UriBuilder::new().label("first").label("second").build().unwrap();
         assert_eq!(uri.get_all("label").count(), 1);
         assert_eq!(uri.label().unwrap().unwrap(), "second");
+    }
+
+    #[test]
+    fn a_typed_setter_keeps_the_key_it_replaces() {
+        let uri = UriBuilder::new().raw_param("REQ-LABEL", "first").label("second").build().unwrap();
+        assert_eq!(uri.get_all("label").count(), 1);
+        assert_eq!(uri.get("label").unwrap().key, "REQ-LABEL");
+        assert_eq!(uri.label().unwrap().unwrap(), "second");
+    }
+
+    #[test]
+    fn into_builder_keeps_every_parsed_parameter() {
+        let source = alloc::format!(
+            "BITCOIN:{}?amount=0.01&LIGHTNING=lnbc1x&req-pj=https://ex.com/%23ex1q&flag&empty=&sp=sp1qq#frag",
+            BECH32_MAINNET.to_uppercase()
+        );
+        let parsed = Uri::parse(&source).unwrap().require_network(bitcoin::Network::Bitcoin).unwrap();
+        let rebuilt = parsed.clone().into_builder().build().unwrap();
+
+        assert_eq!(rebuilt, parsed);
+        assert!(rebuilt.source_str().is_none());
+        let keys: Vec<&str> = rebuilt.params().iter().map(|entry| entry.key.as_str()).collect();
+        assert_eq!(keys, ["amount", "LIGHTNING", "req-pj", "flag", "empty", "sp"]);
+        assert_eq!(rebuilt.get("flag").unwrap().raw_value, None);
+        assert_eq!(rebuilt.get("pj").unwrap().raw_value.as_deref(), Some("https://ex.com/%23ex1q"));
+    }
+
+    #[test]
+    fn setting_the_amount_from_into_builder_keeps_req() {
+        let parsed = Uri::parse("bitcoin:?req-amount=0.01&lightning=lnbc1x").unwrap().assume_checked();
+        let uri = parsed.into_builder().amount(bitcoin::Amount::from_sat(2_100)).build().unwrap();
+
+        assert_eq!(uri.get_all("amount").count(), 1);
+        assert_eq!(uri.get("amount").unwrap().key, "req-amount");
+        assert_eq!(uri.amount(), Some(bitcoin::Amount::from_sat(2_100)));
+        assert!(uri.get("lightning").is_some());
+    }
+
+    #[test]
+    fn an_escaped_key_parses_but_does_not_rebuild() {
+        let parsed = Uri::parse("bitcoin:?%61mount=1").unwrap().assume_checked();
+        assert_eq!(parsed.amount(), None);
+
+        let result = parsed.into_builder().build();
+        assert!(matches!(result, Err(BuildError::InvalidKey(ref key)) if key == "%61mount"));
     }
 
     #[test]
